@@ -1,6 +1,7 @@
 package com.example.game
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -92,6 +93,12 @@ fun GameScreen(
 
     val interactionSource = remember { MutableInteractionSource() }
 
+    // The ocean shifts through depth biomes as the score climbs; colors crossfade smoothly.
+    val biome = remember(score) { biomeFor(score) }
+    val bgTop by animateColorAsState(biome.top, tween(1800), label = "bgTop")
+    val bgMid by animateColorAsState(biome.mid, tween(1800), label = "bgMid")
+    val bgBottom by animateColorAsState(biome.bottom, tween(1800), label = "bgBottom")
+
     var menuTab by remember { mutableStateOf("home") }
     var musicVolume by remember { mutableStateOf(SoundManager.musicVolume) }
     var sfxVolume by remember { mutableStateOf(SoundManager.sfxVolume) }
@@ -124,11 +131,7 @@ fun GameScreen(
             .fillMaxSize()
             .background(
                 brush = Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFF003B5C), // Sun rays zone
-                        Color(0xFF001B2E), // Medium deep cyan
-                        Color(0xFF000F1A)  // Deep marine abyss
-                    )
+                    colors = listOf(bgTop, bgMid, bgBottom)
                 )
             )
     ) {
@@ -771,6 +774,14 @@ fun GameScreen(
                         .padding(top = 52.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    Text(
+                        text = biome.name,
+                        color = Color.White.copy(alpha = 0.35f),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 2.sp
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (shieldCharges > 0) {
                             EffectChip("🛡", "Bouclier", Color(0xFF00E5FF))
@@ -1773,6 +1784,17 @@ fun GameScreen(
             }
         }
     }
+}
+
+/** A depth biome: a name and the three gradient stops for the ocean background. */
+private data class Biome(val name: String, val top: Color, val mid: Color, val bottom: Color)
+
+/** Maps the current score to a depth biome. Deeper = darker, shifting hue. */
+private fun biomeFor(score: Int): Biome = when {
+    score < 10 -> Biome("EAUX ENSOLEILLÉES", Color(0xFF005B8C), Color(0xFF002B45), Color(0xFF001525))
+    score < 25 -> Biome("RÉCIF DE CORAIL", Color(0xFF006D6A), Color(0xFF00343A), Color(0xFF001A1E))
+    score < 50 -> Biome("GRAND BLEU", Color(0xFF002B6E), Color(0xFF001233), Color(0xFF000A1A))
+    else -> Biome("ABYSSES", Color(0xFF1E0A4E), Color(0xFF0A0426), Color(0xFF02010A))
 }
 
 /** Small capsule shown in the HUD for an active power-up effect. */
