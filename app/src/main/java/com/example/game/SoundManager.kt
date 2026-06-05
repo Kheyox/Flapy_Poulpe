@@ -23,15 +23,15 @@ object SoundManager {
     // Simple state
     private var isPlayingMusic = false
 
-    fun init() {
+    fun init(context: android.content.Context) {
         synchronized(this) {
             if (audioTrack != null) return
             try {
-                val track = AudioTrack.Builder()
+                val builder = AudioTrack.Builder()
                     .setAudioAttributes(
                         AudioAttributes.Builder()
-                            .setUsage(AudioAttributes.USAGE_GAME)
-                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                             .build()
                     )
                     .setAudioFormat(
@@ -43,7 +43,12 @@ object SoundManager {
                     )
                     .setBufferSizeInBytes(SAMPLE_RATE * 2) // 1 second buffer
                     .setTransferMode(AudioTrack.MODE_STREAM)
-                    .build()
+                
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                    builder.setContext(context)
+                }
+                
+                val track = builder.build()
                 
                 if (track.state == AudioTrack.STATE_INITIALIZED) {
                     track.play()

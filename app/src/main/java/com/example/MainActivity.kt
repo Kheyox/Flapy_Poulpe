@@ -22,7 +22,7 @@ class MainActivity : ComponentActivity() {
     enableEdgeToEdge()
 
     // Initialize low latency Sound Synth
-    SoundManager.init()
+    SoundManager.init(applicationContext)
 
     // Initialize Room Database & repositories
     val database = GameDatabase.getDatabase(applicationContext)
