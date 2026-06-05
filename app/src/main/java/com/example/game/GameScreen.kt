@@ -76,6 +76,12 @@ fun GameScreen(
     val velocityY by viewModel.velocityYFlow.collectAsStateWithLifecycle()
     val obstacles by viewModel.obstacles.collectAsStateWithLifecycle()
     val pearls by viewModel.pearls.collectAsStateWithLifecycle()
+    val powerUps by viewModel.powerUps.collectAsStateWithLifecycle()
+    val shieldCharges by viewModel.shieldCharges.collectAsStateWithLifecycle()
+    val magnetTime by viewModel.magnetTime.collectAsStateWithLifecycle()
+    val slowMoTime by viewModel.slowMoTime.collectAsStateWithLifecycle()
+    val combo by viewModel.combo.collectAsStateWithLifecycle()
+    val invuln by viewModel.invuln.collectAsStateWithLifecycle()
     val bubbles by viewModel.bubbles.collectAsStateWithLifecycle()
     val particles by viewModel.particles.collectAsStateWithLifecycle()
     val waveTime by viewModel.waveTime.collectAsStateWithLifecycle()
@@ -314,6 +320,81 @@ fun GameScreen(
                     )
                 }
 
+                // E2. Collectible Power-ups (shield / magnet / slow-mo)
+                powerUps.forEach { pu ->
+                    val floatWave = sin(waveTime * 6f + pu.x * 0.05f).toFloat() * 5f
+                    val center = Offset(pu.x, pu.y + floatWave)
+                    val (c1, c2) = when (pu.type) {
+                        PowerUpType.SHIELD -> Color(0xFF00E5FF) to Color(0xFF1B9CFC)
+                        PowerUpType.MAGNET -> Color(0xFFFF6B6B) to Color(0xFFD63031)
+                        PowerUpType.SLOWMO -> Color(0xFFA29BFE) to Color(0xFF6C5CE7)
+                    }
+
+                    // Outer glow
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(c1.copy(alpha = 0.5f), Color.Transparent),
+                            center = center,
+                            radius = pu.radius * 2.2f
+                        ),
+                        radius = pu.radius * 2.2f,
+                        center = center
+                    )
+                    // Core orb
+                    drawCircle(
+                        brush = Brush.linearGradient(
+                            colors = listOf(c1, c2),
+                            start = Offset(center.x - pu.radius, center.y - pu.radius),
+                            end = Offset(center.x + pu.radius, center.y + pu.radius)
+                        ),
+                        radius = pu.radius,
+                        center = center
+                    )
+                    drawCircle(
+                        color = Color.White.copy(alpha = 0.85f),
+                        radius = pu.radius,
+                        center = center,
+                        style = Stroke(width = 2.5f)
+                    )
+
+                    // White glyph identifying the power-up
+                    val white = Color.White
+                    when (pu.type) {
+                        PowerUpType.SHIELD -> {
+                            val sp = Path().apply {
+                                moveTo(center.x, center.y - 11f)
+                                lineTo(center.x + 9f, center.y - 6f)
+                                lineTo(center.x + 9f, center.y + 3f)
+                                quadraticTo(center.x, center.y + 13f, center.x, center.y + 13f)
+                                quadraticTo(center.x, center.y + 13f, center.x - 9f, center.y + 3f)
+                                lineTo(center.x - 9f, center.y - 6f)
+                                close()
+                            }
+                            drawPath(sp, white, style = Stroke(width = 2.5f, cap = StrokeCap.Round))
+                        }
+                        PowerUpType.MAGNET -> {
+                            // Horseshoe magnet: two prongs joined by an arc, with red tips
+                            drawArc(
+                                color = white,
+                                startAngle = 180f, sweepAngle = 180f, useCenter = false,
+                                topLeft = Offset(center.x - 9f, center.y - 10f),
+                                size = Size(18f, 18f),
+                                style = Stroke(width = 4f)
+                            )
+                            drawLine(white, Offset(center.x - 9f, center.y - 1f), Offset(center.x - 9f, center.y + 9f), strokeWidth = 4f)
+                            drawLine(white, Offset(center.x + 9f, center.y - 1f), Offset(center.x + 9f, center.y + 9f), strokeWidth = 4f)
+                            drawLine(Color(0xFFFF1744), Offset(center.x - 9f, center.y + 6f), Offset(center.x - 9f, center.y + 9f), strokeWidth = 4f)
+                            drawLine(Color(0xFFFF1744), Offset(center.x + 9f, center.y + 6f), Offset(center.x + 9f, center.y + 9f), strokeWidth = 4f)
+                        }
+                        PowerUpType.SLOWMO -> {
+                            // Clock face with two hands
+                            drawCircle(white, radius = 9f, center = center, style = Stroke(width = 2.5f))
+                            drawLine(white, center, Offset(center.x, center.y - 6f), strokeWidth = 2.5f)
+                            drawLine(white, center, Offset(center.x + 5f, center.y), strokeWidth = 2.5f)
+                        }
+                    }
+                }
+
                 // F. Active Game Particles (explosions on score/impact)
                 particles.forEach { particle ->
                     drawCircle(
@@ -378,6 +459,22 @@ fun GameScreen(
                     radius = 30f,
                     center = Offset(octoX, octoY)
                 )
+
+                // Protective shimmer while invulnerable (just after a shield save)
+                if (invuln) {
+                    val shieldPulse = (sin(waveTime * 18f).toFloat() * 0.5f + 0.5f)
+                    drawCircle(
+                        color = Color(0xFF00E5FF).copy(alpha = 0.25f + 0.4f * shieldPulse),
+                        radius = 42f,
+                        center = Offset(octoX, octoY),
+                        style = Stroke(width = 3.5f)
+                    )
+                    drawCircle(
+                        color = Color(0xFF00E5FF).copy(alpha = 0.08f),
+                        radius = 42f,
+                        center = Offset(octoX, octoY)
+                    )
+                }
 
                 // --- 1. EXPANSIVE AQUATIC ACCESSORIES (CROWN / SAILOR HAT ON THE HEAD) ---
                 if (selectedAccessory == OctopusAccessory.CROWN) {
@@ -663,6 +760,55 @@ fun GameScreen(
                             color = Color.White,
                             fontSize = 20.sp,
                             fontWeight = FontWeight.ExtraBold
+                        )
+                    }
+                }
+
+                // Active power-up effects + combo indicator
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 52.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (shieldCharges > 0) {
+                            EffectChip("🛡", "Bouclier", Color(0xFF00E5FF))
+                        }
+                        if (magnetTime > 0f) {
+                            EffectChip("🧲", "${magnetTime.toInt() + 1}s", Color(0xFFFF6B6B))
+                        }
+                        if (slowMoTime > 0f) {
+                            EffectChip("⏳", "${slowMoTime.toInt() + 1}s", Color(0xFFA29BFE))
+                        }
+                    }
+
+                    if (combo >= 2) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        val comboTransition = rememberInfiniteTransition(label = "combo")
+                        val comboScale by comboTransition.animateFloat(
+                            initialValue = 0.95f,
+                            targetValue = 1.1f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(500, easing = FastOutSlowInEasing),
+                                repeatMode = RepeatMode.Reverse
+                            ),
+                            label = "combo_scale"
+                        )
+                        Text(
+                            text = "COMBO x$combo",
+                            color = Color(0xFFFFD700),
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 1.sp,
+                            modifier = Modifier.scale(comboScale),
+                            style = TextStyle(
+                                shadow = Shadow(
+                                    color = Color(0xFFFF9F43),
+                                    offset = Offset(0f, 0f),
+                                    blurRadius = 12f
+                                )
+                            )
                         )
                     }
                 }
@@ -1626,5 +1772,28 @@ fun GameScreen(
                 }
             }
         }
+    }
+}
+
+/** Small capsule shown in the HUD for an active power-up effect. */
+@Composable
+private fun EffectChip(emoji: String, label: String, accent: Color) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color.Black.copy(alpha = 0.35f))
+            .border(1.dp, accent.copy(alpha = 0.6f), RoundedCornerShape(20.dp))
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(text = emoji, fontSize = 13.sp)
+        Spacer(modifier = Modifier.width(5.dp))
+        Text(
+            text = label,
+            color = accent,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.5.sp
+        )
     }
 }

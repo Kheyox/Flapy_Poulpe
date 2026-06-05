@@ -47,6 +47,15 @@ data class Pearl(
     val collected: Boolean = false
 )
 
+enum class PowerUpType { SHIELD, MAGNET, SLOWMO }
+
+data class PowerUp(
+    val x: Float,
+    val y: Float,
+    val type: PowerUpType,
+    val radius: Float = 24f
+)
+
 data class Bubble(
     val x: Float,
     val y: Float,
@@ -76,6 +85,11 @@ class GameViewModel(
         // radius of 30; we use a slightly smaller value so collisions feel fair
         // rather than punishing, and stay consistent between walls and bounds.
         const val OCTOPUS_RADIUS = 28f
+
+        // Power-up durations (seconds) and shield invulnerability window.
+        const val MAGNET_DURATION = 7f
+        const val SLOWMO_DURATION = 5f
+        const val SHIELD_INVULN = 1.2f
     }
 
     private val _gameScreenState = MutableStateFlow(GameScreenState.MENU)
@@ -95,6 +109,28 @@ class GameViewModel(
 
     private val _pearls = MutableStateFlow<List<Pearl>>(emptyList())
     val pearls: StateFlow<List<Pearl>> = _pearls.asStateFlow()
+
+    private val _powerUps = MutableStateFlow<List<PowerUp>>(emptyList())
+    val powerUps: StateFlow<List<PowerUp>> = _powerUps.asStateFlow()
+
+    // Active effects
+    private val _shieldCharges = MutableStateFlow(0)
+    val shieldCharges: StateFlow<Int> = _shieldCharges.asStateFlow()
+
+    private val _magnetTime = MutableStateFlow(0f)
+    val magnetTime: StateFlow<Float> = _magnetTime.asStateFlow()
+
+    private val _slowMoTime = MutableStateFlow(0f)
+    val slowMoTime: StateFlow<Float> = _slowMoTime.asStateFlow()
+
+    // Consecutive pearls collected without missing one — multiplies pearl score.
+    private val _combo = MutableStateFlow(0)
+    val combo: StateFlow<Int> = _combo.asStateFlow()
+
+    // True while the octopus is briefly invulnerable after a shield save.
+    private val _invuln = MutableStateFlow(false)
+    val invuln: StateFlow<Boolean> = _invuln.asStateFlow()
+    private var invulnTime = 0f
 
     private val _bubbles = MutableStateFlow<List<Bubble>>(emptyList())
     val bubbles: StateFlow<List<Bubble>> = _bubbles.asStateFlow()
@@ -198,7 +234,14 @@ class GameViewModel(
         _velocityY.value = velocityY
         _obstacles.value = emptyList()
         _pearls.value = emptyList()
+        _powerUps.value = emptyList()
         _particles.value = emptyList()
+        _shieldCharges.value = 0
+        _magnetTime.value = 0f
+        _slowMoTime.value = 0f
+        _combo.value = 0
+        invulnTime = 0f
+        _invuln.value = false
         _gameScreenState.value = GameScreenState.PLAYING
 
         gameJob?.cancel()
@@ -232,6 +275,14 @@ class GameViewModel(
     }
 
     private fun updateGame(dt: Float) {
+        // 0. Tick down active effect timers
+        if (invulnTime > 0f) {
+            invulnTime = (invulnTime - dt).coerceAtLeast(0f)
+            _invuln.value = invulnTime > 0f
+        }
+        if (_magnetTime.value > 0f) _magnetTime.value = (_magnetTime.value - dt).coerceAtLeast(0f)
+        if (_slowMoTime.value > 0f) _slowMoTime.value = (_slowMoTime.value - dt).coerceAtLeast(0f)
+
         // 1. Apply gravity (buoyancy is weaker than full air gravity)
         velocityY += 1050f * dt
         _velocityY.value = velocityY
@@ -240,13 +291,21 @@ class GameViewModel(
 
         // 2. Bound check (crash when hitting surface or bottom depths)
         if (nextOctopusY - OCTOPUS_RADIUS < 0f || nextOctopusY + OCTOPUS_RADIUS > 1000f) {
-            endGame()
-            return
+            if (survivesCrash()) {
+                // Shield/invulnerability: clamp back into the play area instead of dying
+                _octopusY.value = nextOctopusY.coerceIn(OCTOPUS_RADIUS, 1000f - OCTOPUS_RADIUS)
+                velocityY = 0f
+                _velocityY.value = 0f
+            } else {
+                endGame()
+                return
+            }
         }
 
         // 3. Move obstacles & detect collisions
         val speedMultiplier = (1.0f + (_score.value * 0.018f)).coerceAtMost(1.65f)
-        val currentSpeed = 220f * speedMultiplier
+        // Slow-motion power-up reduces scroll speed while active
+        val currentSpeed = 220f * speedMultiplier * (if (_slowMoTime.value > 0f) 0.55f else 1f)
 
         val currentObstacles = _obstacles.value
         val nextObstacles = mutableListOf<CoralObstacle>()
@@ -281,8 +340,11 @@ class GameViewModel(
             )
 
             if (topCrash || bottomCrash) {
-                endGame()
-                return
+                if (!survivesCrash()) {
+                    endGame()
+                    return
+                }
+                // Shielded/invulnerable: swim straight through the coral
             }
 
             nextObstacles.add(obs.copy(x = nextX, gapY = currentGapY, passed = isPassed))
@@ -290,30 +352,88 @@ class GameViewModel(
         _obstacles.value = nextObstacles
 
         // 4. Move pearls and handle collection
+        val magnetActive = _magnetTime.value > 0f
         val currentPearls = _pearls.value
         val nextPearls = mutableListOf<Pearl>()
         for (pearl in currentPearls) {
-            val nextX = pearl.x - currentSpeed * dt
+            var nextX = pearl.x - currentSpeed * dt
+            var nextY = pearl.y
+
+            // Magnet power-up: nearby pearls are pulled toward the octopus
+            if (magnetActive) {
+                val dx = 220f - nextX
+                val dy = _octopusY.value - nextY
+                val dist = kotlin.math.sqrt(dx * dx + dy * dy)
+                if (dist in 1f..400f) {
+                    val pull = 700f * dt
+                    nextX += (dx / dist) * pull
+                    nextY += (dy / dist) * pull
+                }
+            }
+
             if (nextX + 40f < 0f) {
+                // Pearl escaped off-screen: the combo chain is broken
+                _combo.value = 0
                 continue
             }
 
             // Check collision with octopus
-            val distSq = (220f - nextX) * (220f - nextX) + (_octopusY.value - pearl.y) * (_octopusY.value - pearl.y)
+            val distSq = (220f - nextX) * (220f - nextX) + (_octopusY.value - nextY) * (_octopusY.value - nextY)
             if (distSq < (30f + 16f) * (30f + 16f)) {
-                // Jackpot! 5 bonus points + gold splash
-                _score.value += 5
+                // Build the combo and award 5 points times the multiplier
+                _combo.value += 1
+                _score.value += 5 * _combo.value
                 SoundManager.playCollect() // Play special collect chime!
-                triggerPearlExplosion(nextX, pearl.y)
+                triggerPearlExplosion(nextX, nextY)
                 continue
             }
 
-            nextPearls.add(pearl.copy(x = nextX))
+            nextPearls.add(pearl.copy(x = nextX, y = nextY))
         }
         _pearls.value = nextPearls
 
-        // 5. Update active decorative systems (particles & bubbles)
+        // 5. Move power-ups and handle collection
+        val currentPowerUps = _powerUps.value
+        val nextPowerUps = mutableListOf<PowerUp>()
+        for (pu in currentPowerUps) {
+            val nextX = pu.x - currentSpeed * dt
+            if (nextX + pu.radius < 0f) continue
+
+            val distSq = (220f - nextX) * (220f - nextX) + (_octopusY.value - pu.y) * (_octopusY.value - pu.y)
+            if (distSq < (30f + pu.radius) * (30f + pu.radius)) {
+                activatePowerUp(pu.type)
+                SoundManager.playCollect()
+                triggerPowerUpBurst(nextX, pu.y, pu.type)
+                continue
+            }
+            nextPowerUps.add(pu.copy(x = nextX))
+        }
+        _powerUps.value = nextPowerUps
+
+        // 6. Update active decorative systems (particles & bubbles)
         updateParticlesAndBubbles(dt, currentSpeed)
+    }
+
+    /** Returns true if the octopus survives a crash (invulnerable or has a shield). */
+    private fun survivesCrash(): Boolean {
+        if (invulnTime > 0f) return true
+        if (_shieldCharges.value > 0) {
+            _shieldCharges.value -= 1
+            invulnTime = SHIELD_INVULN
+            _invuln.value = true
+            SoundManager.playCollect()
+            triggerShieldBreak(220f, _octopusY.value)
+            return true
+        }
+        return false
+    }
+
+    private fun activatePowerUp(type: PowerUpType) {
+        when (type) {
+            PowerUpType.SHIELD -> _shieldCharges.value = (_shieldCharges.value + 1).coerceAtMost(1)
+            PowerUpType.MAGNET -> _magnetTime.value = MAGNET_DURATION
+            PowerUpType.SLOWMO -> _slowMoTime.value = SLOWMO_DURATION
+        }
     }
 
     private fun spawnObstacle() {
@@ -353,6 +473,17 @@ class GameViewModel(
                 y = pearlY
             )
             _pearls.value = _pearls.value + newPearl
+        }
+
+        // Occasionally drop a power-up inside the gap (rarer than pearls)
+        if (Random.nextFloat() < 0.20f) {
+            val type = PowerUpType.values().random()
+            val puY = gapY + Random.nextFloat() * 60f - 30f
+            _powerUps.value = _powerUps.value + PowerUp(
+                x = 1100f + 57.5f,
+                y = puY,
+                type = type
+            )
         }
     }
 
@@ -491,6 +622,43 @@ class GameViewModel(
             )
         }
         _particles.value = _particles.value + pearlList
+    }
+
+    private fun triggerShieldBreak(x: Float, y: Float) {
+        val list = List(26) {
+            val angle = Random.nextFloat() * Math.PI.toFloat() * 2f
+            val speed = Random.nextFloat() * 320f + 60f
+            StarParticle(
+                x = x,
+                y = y,
+                tx = Math.cos(angle.toDouble()).toFloat() * speed,
+                ty = Math.sin(angle.toDouble()).toFloat() * speed,
+                color = Color(0xFF00E5FF), // Cyan shield shards
+                life = 1f
+            )
+        }
+        _particles.value = _particles.value + list
+    }
+
+    private fun triggerPowerUpBurst(x: Float, y: Float, type: PowerUpType) {
+        val burstColor = when (type) {
+            PowerUpType.SHIELD -> Color(0xFF00E5FF)
+            PowerUpType.MAGNET -> Color(0xFFFF5252)
+            PowerUpType.SLOWMO -> Color(0xFFA29BFE)
+        }
+        val list = List(18) {
+            val angle = Random.nextFloat() * Math.PI.toFloat() * 2f
+            val speed = Random.nextFloat() * 260f + 40f
+            StarParticle(
+                x = x,
+                y = y,
+                tx = Math.cos(angle.toDouble()).toFloat() * speed,
+                ty = Math.sin(angle.toDouble()).toFloat() * speed,
+                color = burstColor,
+                life = 1f
+            )
+        }
+        _particles.value = _particles.value + list
     }
 
     fun backToMenu() {
