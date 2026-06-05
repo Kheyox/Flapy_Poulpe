@@ -1185,7 +1185,7 @@ fun GameScreen(
                                         ) {
                                             Column {
                                                 Text(
-                                                    text = "Version actuelle : 1.0",
+                                                    text = "Version actuelle : ${updateManager.currentVersionName}",
                                                     color = Color.White.copy(alpha = 0.8f),
                                                     fontSize = 12.sp,
                                                     fontWeight = FontWeight.Medium
@@ -1236,7 +1236,7 @@ fun GameScreen(
                                                          ownerInput = it
                                                          updateManager.githubOwner = it
                                                      },
-                                                     label = { Text("Propriétaire (ex: foreval69)", color = Color.White.copy(alpha = 0.5f), fontSize = 10.sp) },
+                                                     label = { Text("Propriétaire (ex: Kheyox)", color = Color.White.copy(alpha = 0.5f), fontSize = 10.sp) },
                                                      textStyle = TextStyle(color = Color.White, fontSize = 12.sp),
                                                      modifier = Modifier.fillMaxWidth(),
                                                      singleLine = true,
@@ -1255,7 +1255,7 @@ fun GameScreen(
                                                          repoInput = it
                                                          updateManager.githubRepo = it
                                                      },
-                                                     label = { Text("Dépôt (ex: poulpe-flappy)", color = Color.White.copy(alpha = 0.5f), fontSize = 10.sp) },
+                                                     label = { Text("Dépôt (ex: Flapy_Poulpe)", color = Color.White.copy(alpha = 0.5f), fontSize = 10.sp) },
                                                      textStyle = TextStyle(color = Color.White, fontSize = 12.sp),
                                                      modifier = Modifier.fillMaxWidth(),
                                                      singleLine = true,

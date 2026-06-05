@@ -33,20 +33,23 @@ class UpdateManager(private val context: Context) {
     private val client = OkHttpClient()
     private val scope = CoroutineScope(Dispatchers.IO)
 
-    // Configurable owner and repo (defaulting to the user's conjectured profile repos)
-    var githubOwner = "foreval69"
-    var githubRepo = "poulpe-flappy"
+    // Configurable owner and repo (defaults point to this project's actual GitHub repo)
+    var githubOwner = "Kheyox"
+    var githubRepo = "Flapy_Poulpe"
+
+    /** The versionName baked into the currently installed APK (e.g. "1.0.42"). */
+    val currentVersionName: String = try {
+        context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0"
+    } catch (e: Exception) {
+        "1.0"
+    }
 
     fun checkUpdates() {
         _updateState.value = UpdateState.Checking
         scope.launch {
             try {
-                val currentVersion = try {
-                    context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0"
-                } catch (e: Exception) {
-                    "1.0"
-                }
-                
+                val currentVersion = currentVersionName
+
                 val url = "https://api.github.com/repos/$githubOwner/$githubRepo/releases/latest"
                 val request = Request.Builder()
                     .url(url)
