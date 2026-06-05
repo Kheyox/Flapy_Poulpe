@@ -1,0 +1,6 @@
+{
+  "name": "Poulpe Flappy",
+  "description": "Un jeu d'arcade sous-marin captivant de type Flappy Bird où vous guidez un petit poulpe à travers les obstacles de l'océan.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
