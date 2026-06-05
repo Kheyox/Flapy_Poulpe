@@ -33,7 +33,10 @@ data class CoralObstacle(
     val gapY: Float, // center of gap in Y
     val gapHeight: Float = 260f,
     val width: Float = 120f,
-    val passed: Boolean = false
+    val passed: Boolean = false,
+    val bobSpeed: Float = 0f,
+    val bobRange: Float = 0f,
+    val initialGapY: Float = gapY
 )
 
 data class Pearl(
@@ -144,6 +147,8 @@ class GameViewModel(private val repository: HighScoreRepository) : ViewModel() {
         velocityY = -390f
         _velocityY.value = velocityY
         
+        SoundManager.playSwim() // Play low-latency bubble bloop!
+        
         // Spawn active bubbles at the bottom of the octopus!
         spawnSwimmingBubbles(220f, _octopusY.value, count = 10)
     }
@@ -203,7 +208,7 @@ class GameViewModel(private val repository: HighScoreRepository) : ViewModel() {
         }
 
         // 3. Move obstacles & detect collisions
-        val speedMultiplier = (1.0f + (_score.value * 0.015f)).coerceAtMost(1.5f)
+        val speedMultiplier = (1.0f + (_score.value * 0.018f)).coerceAtMost(1.65f)
         val currentSpeed = 220f * speedMultiplier
 
         val currentObstacles = _obstacles.value
@@ -214,21 +219,28 @@ class GameViewModel(private val repository: HighScoreRepository) : ViewModel() {
                 continue // past left side
             }
 
+            // Animate dynamic vertical shifting (bobbing seaweed-coral columns)
+            var currentGapY = obs.gapY
+            if (obs.bobRange > 0f) {
+                currentGapY = obs.initialGapY + kotlin.math.sin(_waveTime.value * obs.bobSpeed) * obs.bobRange
+            }
+
             var isPassed = obs.passed
             if (!isPassed && nextX + obs.width / 2f <= 220f) {
                 isPassed = true
                 _score.value += 1
-                spawnWavedBubbles(nextX + obs.width / 2f, obs.gapY, count = 4)
+                SoundManager.playCollect() // Play sweet point collection sound effect
+                spawnWavedBubbles(nextX + obs.width / 2f, currentGapY, count = 4)
             }
 
             // Precisely check circle-to-rectangle collisions with both coral columns
             val topCrash = checkCircleRectCollision(
                 circleX = 220f, circleY = _octopusY.value, radius = 28f,
-                rectX1 = nextX, rectY1 = 0f, rectX2 = nextX + obs.width, rectY2 = obs.gapY - obs.gapHeight / 2f
+                rectX1 = nextX, rectY1 = 0f, rectX2 = nextX + obs.width, rectY2 = currentGapY - obs.gapHeight / 2f
             )
             val bottomCrash = checkCircleRectCollision(
                 circleX = 220f, circleY = _octopusY.value, radius = 28f,
-                rectX1 = nextX, rectY1 = obs.gapY + obs.gapHeight / 2f, rectX2 = nextX + obs.width, rectY2 = 1000f
+                rectX1 = nextX, rectY1 = currentGapY + obs.gapHeight / 2f, rectX2 = nextX + obs.width, rectY2 = 1000f
             )
 
             if (topCrash || bottomCrash) {
@@ -236,7 +248,7 @@ class GameViewModel(private val repository: HighScoreRepository) : ViewModel() {
                 return
             }
 
-            nextObstacles.add(obs.copy(x = nextX, passed = isPassed))
+            nextObstacles.add(obs.copy(x = nextX, gapY = currentGapY, passed = isPassed))
         }
         _obstacles.value = nextObstacles
 
@@ -254,6 +266,7 @@ class GameViewModel(private val repository: HighScoreRepository) : ViewModel() {
             if (distSq < (30f + 16f) * (30f + 16f)) {
                 // Jackpot! 5 bonus points + gold splash
                 _score.value += 5
+                SoundManager.playCollect() // Play special collect chime!
                 triggerPearlExplosion(nextX, pearl.y)
                 continue
             }
@@ -272,11 +285,26 @@ class GameViewModel(private val repository: HighScoreRepository) : ViewModel() {
         // Reduce gap size slightly over time for difficulty tuning
         val currentGapHeight = (defaultGapHeight - (_score.value * 2f)).coerceAtLeast(190f)
 
+        // Escalate difficulty: introduce moving/bobbing corals as the score increases!
+        val bobRange = if (_score.value >= 4) {
+            (Random.nextFloat() * (_score.value * 2.5f)).coerceAtMost(90f) // Up to 90px bobbing oscillation
+        } else {
+            0f
+        }
+        val bobSpeed = if (bobRange > 0f) {
+            Random.nextFloat() * 1.5f + 0.8f
+        } else {
+            0f
+        }
+
         val newObstacle = CoralObstacle(
             x = 1100f,
             gapY = gapY,
             gapHeight = currentGapHeight,
-            width = 115f
+            width = 115f,
+            bobSpeed = bobSpeed,
+            bobRange = bobRange,
+            initialGapY = gapY
         )
         _obstacles.value = _obstacles.value + newObstacle
 
@@ -316,6 +344,7 @@ class GameViewModel(private val repository: HighScoreRepository) : ViewModel() {
     private fun endGame() {
         _gameScreenState.value = GameScreenState.GAME_OVER
         gameJob?.cancel()
+        SoundManager.playCrash() // Play impact crash synthesizer!
 
         // Screen shake of particles on impact
         triggerCrashExplosion(220f, _octopusY.value)

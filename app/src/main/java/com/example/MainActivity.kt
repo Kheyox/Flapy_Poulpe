@@ -13,12 +13,16 @@ import com.example.data.HighScoreRepository
 import com.example.game.GameScreen
 import com.example.game.GameViewModel
 import com.example.game.GameViewModelFactory
+import com.example.game.SoundManager
 import com.example.ui.theme.MyApplicationTheme
 
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     enableEdgeToEdge()
+
+    // Initialize low latency Sound Synth
+    SoundManager.init()
 
     // Initialize Room Database & repositories
     val database = GameDatabase.getDatabase(applicationContext)
@@ -39,6 +43,23 @@ class MainActivity : ComponentActivity() {
         }
       }
     }
+  }
+
+  override fun onResume() {
+    super.onResume()
+    // Resume background music on app focus
+    SoundManager.startMusic()
+  }
+
+  override fun onPause() {
+    super.onPause()
+    // Pause background music to save battery and follow Android standards
+    SoundManager.stopMusic()
+  }
+
+  override fun onDestroy() {
+    super.onDestroy()
+    SoundManager.release()
   }
 }
 

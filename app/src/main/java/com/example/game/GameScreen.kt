@@ -19,6 +19,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
@@ -34,6 +35,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -75,9 +77,30 @@ fun GameScreen(
     val interactionSource = remember { MutableInteractionSource() }
 
     var menuTab by remember { mutableStateOf("home") }
-    var musicVolume by remember { mutableStateOf(0.8f) }
-    var sfxVolume by remember { mutableStateOf(0.9f) }
+    var musicVolume by remember { mutableStateOf(SoundManager.musicVolume) }
+    var sfxVolume by remember { mutableStateOf(SoundManager.sfxVolume) }
     var selectedSkin by remember { mutableStateOf(OctopusSkin.CLASSIC) }
+
+    val context = LocalContext.current
+    val updateManager = remember { UpdateManager(context) }
+    val updateState by updateManager.updateState.collectAsStateWithLifecycle()
+
+    var ownerInput by remember { mutableStateOf(updateManager.githubOwner) }
+    var repoInput by remember { mutableStateOf(updateManager.githubRepo) }
+    var showRepoConfig by remember { mutableStateOf(false) }
+
+    // Seamlessly map sliding volume inputs onto physical Tone Synthesizer properties in real time
+    LaunchedEffect(musicVolume) {
+        SoundManager.musicVolume = musicVolume
+    }
+    LaunchedEffect(sfxVolume) {
+        SoundManager.sfxVolume = sfxVolume
+    }
+
+    // Proactively query updates in background when app is launched
+    LaunchedEffect(Unit) {
+        updateManager.checkUpdates()
+    }
 
     Box(
         modifier = modifier
@@ -931,8 +954,253 @@ fun GameScreen(
                                             thumbColor = Color(0xFF55E6C1),
                                             activeTrackColor = Color(0xFF55E6C1),
                                             inactiveTrackColor = Color.White.copy(alpha = 0.15f)
-                                        )
+                                        ),
+                                        modifier = Modifier.padding(bottom = 16.dp)
                                     )
+
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(vertical = 12.dp),
+                                        color = Color.White.copy(alpha = 0.15f)
+                                    )
+
+                                    // GITHUB UPDATE UI SECTION (Fully Reactive)
+                                    run {
+                                        Text(
+                                            text = "MISES À JOUR DE L'APK",
+                                            color = Color.White,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            letterSpacing = 1.sp,
+                                            modifier = Modifier.padding(bottom = 8.dp)
+                                        )
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column {
+                                                Text(
+                                                    text = "Version actuelle : 1.0",
+                                                    color = Color.White.copy(alpha = 0.8f),
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Medium
+                                                )
+                                                Text(
+                                                    text = "Dépôt : ${updateManager.githubOwner}/${updateManager.githubRepo}",
+                                                    modifier = Modifier.clickable { showRepoConfig = !showRepoConfig },
+                                                    color = Color.White.copy(alpha = 0.5f),
+                                                    fontSize = 10.sp
+                                                )
+                                            }
+
+                                            if (updateState is UpdateState.Idle || updateState is UpdateState.NoUpdate || updateState is UpdateState.Error) {
+                                                Button(
+                                                    onClick = { updateManager.checkUpdates() },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1B9CFC)),
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                                ) {
+                                                    Text("Vérifier", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.height(12.dp))
+
+                                        // Display states
+                                        if (showRepoConfig) {
+                                             Column(
+                                                 modifier = Modifier
+                                                     .fillMaxWidth()
+                                                     .padding(vertical = 8.dp)
+                                                     .clip(RoundedCornerShape(8.dp))
+                                                     .background(Color.White.copy(alpha = 0.05f))
+                                                     .padding(8.dp)
+                                             ) {
+                                                 Text(
+                                                     text = "Configuration du dépôt (live) :",
+                                                     color = Color(0xFF55E6C1),
+                                                     fontSize = 11.sp,
+                                                     fontWeight = FontWeight.Bold,
+                                                     modifier = Modifier.padding(bottom = 6.dp)
+                                                 )
+
+                                                 OutlinedTextField(
+                                                     value = ownerInput,
+                                                     onValueChange = {
+                                                         ownerInput = it
+                                                         updateManager.githubOwner = it
+                                                     },
+                                                     label = { Text("Propriétaire (ex: foreval69)", color = Color.White.copy(alpha = 0.5f), fontSize = 10.sp) },
+                                                     textStyle = TextStyle(color = Color.White, fontSize = 12.sp),
+                                                     modifier = Modifier.fillMaxWidth(),
+                                                     singleLine = true,
+                                                     colors = OutlinedTextFieldDefaults.colors(
+                                                         focusedBorderColor = Color(0xFF55E6C1),
+                                                         unfocusedBorderColor = Color.White.copy(alpha = 0.2f),
+                                                         focusedLabelColor = Color(0xFF55E6C1)
+                                                     )
+                                                 )
+
+                                                 Spacer(modifier = Modifier.height(6.dp))
+
+                                                 OutlinedTextField(
+                                                     value = repoInput,
+                                                     onValueChange = {
+                                                         repoInput = it
+                                                         updateManager.githubRepo = it
+                                                     },
+                                                     label = { Text("Dépôt (ex: poulpe-flappy)", color = Color.White.copy(alpha = 0.5f), fontSize = 10.sp) },
+                                                     textStyle = TextStyle(color = Color.White, fontSize = 12.sp),
+                                                     modifier = Modifier.fillMaxWidth(),
+                                                     singleLine = true,
+                                                     colors = OutlinedTextFieldDefaults.colors(
+                                                         focusedBorderColor = Color(0xFF55E6C1),
+                                                         unfocusedBorderColor = Color.White.copy(alpha = 0.2f),
+                                                         focusedLabelColor = Color(0xFF55E6C1)
+                                                     )
+                                                 )
+                                             }
+                                             Spacer(modifier = Modifier.height(8.dp))
+                                         }
+
+                                         when (val stateVal = updateState) {
+                                            is UpdateState.Checking -> {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    CircularProgressIndicator(
+                                                        modifier = Modifier.size(16.dp),
+                                                        strokeWidth = 2.dp,
+                                                        color = Color(0xFF55E6C1)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(10.dp))
+                                                    Text(
+                                                        text = "Vérification sur GitHub...",
+                                                        color = Color.White.copy(alpha = 0.7f),
+                                                        fontSize = 11.sp
+                                                    )
+                                                }
+                                            }
+                                            is UpdateState.NoUpdate -> {
+                                                Text(
+                                                    text = "✓ Votre jeu est entièrement à jour !",
+                                                    color = Color(0xFF55E6C1),
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    modifier = Modifier.padding(vertical = 4.dp)
+                                                )
+                                            }
+                                            is UpdateState.UpdateAvailable -> {
+                                                Column(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .clip(RoundedCornerShape(12.dp))
+                                                        .background(Color(0xFF130F40).copy(alpha = 0.6f))
+                                                        .border(1.dp, Color(0xFFFF9F43).copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                                                        .padding(12.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "Nouvelle version : v${stateVal.tagName}",
+                                                        color = Color(0xFFFF9F43),
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                    
+                                                    Spacer(modifier = Modifier.height(4.dp))
+                                                    
+                                                    Text(
+                                                        text = "Nouveautés :\n${stateVal.changelog}",
+                                                        color = Color.White.copy(alpha = 0.8f),
+                                                        fontSize = 11.sp,
+                                                        lineHeight = 15.sp
+                                                    )
+                                                    
+                                                    Spacer(modifier = Modifier.height(10.dp))
+                                                    
+                                                    Button(
+                                                        onClick = { updateManager.downloadAndInstall(stateVal.downloadUrl) },
+                                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF55E6C1)),
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        modifier = Modifier.fillMaxWidth()
+                                                    ) {
+                                                        Text(
+                                                            text = "TÉLÉCHARGER & INSTALLER EN DIRECT",
+                                                            color = Color(0xFF0F2027),
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.Black
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                            is UpdateState.Downloading -> {
+                                                Column(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        horizontalArrangement = Arrangement.SpaceBetween
+                                                    ) {
+                                                        Text(
+                                                            text = "Téléchargement de l'APK...",
+                                                            color = Color.White.copy(alpha = 0.8f),
+                                                            fontSize = 11.sp
+                                                        )
+                                                        Text(
+                                                            text = "${stateVal.progress}%",
+                                                            color = Color(0xFF55E6C1),
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    }
+                                                    Spacer(modifier = Modifier.height(6.dp))
+                                                    LinearProgressIndicator(
+                                                        progress = { stateVal.progress / 100f },
+                                                        color = Color(0xFF55E6C1),
+                                                        trackColor = Color.White.copy(alpha = 0.15f),
+                                                        modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape)
+                                                    )
+                                                }
+                                            }
+                                            is UpdateState.ReadyToInstall -> {
+                                                Text(
+                                                    text = "✓ Téléchargement terminé ! Installation...",
+                                                    color = Color(0xFF55E6C1),
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    modifier = Modifier.padding(vertical = 4.dp)
+                                                )
+                                            }
+                                            is UpdateState.Error -> {
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .background(Color(0xFFFF7675).copy(alpha = 0.15f))
+                                                        .padding(8.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text(
+                                                        text = stateVal.message,
+                                                        color = Color(0xFFFF7675),
+                                                        fontSize = 11.sp,
+                                                        modifier = Modifier.weight(1f)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .clip(CircleShape)
+                                                            .background(Color(0xFFFF7675).copy(alpha = 0.2f))
+                                                            .clickable { updateManager.resetState() }
+                                                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                                                    ) {
+                                                        Text("OK", color = Color(0xFFFF7675), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                                    }
+                                                }
+                                            }
+                                            else -> {}
+                                        }
+                                    }
                                 }
                             }
                         }
