@@ -27,7 +27,7 @@ object SoundManager {
         synchronized(this) {
             if (audioTrack != null) return
             try {
-                audioTrack = AudioTrack.Builder()
+                val track = AudioTrack.Builder()
                     .setAudioAttributes(
                         AudioAttributes.Builder()
                             .setUsage(AudioAttributes.USAGE_GAME)
@@ -44,9 +44,17 @@ object SoundManager {
                     .setBufferSizeInBytes(SAMPLE_RATE * 2) // 1 second buffer
                     .setTransferMode(AudioTrack.MODE_STREAM)
                     .build()
-                audioTrack?.play()
+                
+                if (track.state == AudioTrack.STATE_INITIALIZED) {
+                    track.play()
+                    audioTrack = track
+                } else {
+                    track.release()
+                    audioTrack = null
+                }
             } catch (e: Throwable) {
                 e.printStackTrace()
+                audioTrack = null
             }
         }
     }
