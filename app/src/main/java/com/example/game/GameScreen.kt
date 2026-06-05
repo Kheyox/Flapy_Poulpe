@@ -89,8 +89,8 @@ fun GameScreen(
     var menuTab by remember { mutableStateOf("home") }
     var musicVolume by remember { mutableStateOf(SoundManager.musicVolume) }
     var sfxVolume by remember { mutableStateOf(SoundManager.sfxVolume) }
-    var selectedSkin by remember { mutableStateOf(OctopusSkin.CLASSIC) }
-    var selectedAccessory by remember { mutableStateOf(OctopusAccessory.NONE) }
+    val selectedSkin by viewModel.selectedSkin.collectAsStateWithLifecycle()
+    val selectedAccessory by viewModel.selectedAccessory.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val updateManager = remember { UpdateManager(context) }
@@ -1013,7 +1013,7 @@ fun GameScreen(
                                                     color = if (isSelected) Color(0xFF55E6C1) else Color.White.copy(alpha = 0.05f),
                                                     shape = RoundedCornerShape(12.dp)
                                                 )
-                                                .clickable { selectedSkin = skin }
+                                                .clickable { viewModel.setSkin(skin) }
                                                 .padding(horizontal = 14.dp, vertical = 10.dp),
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.SpaceBetween
@@ -1080,7 +1080,7 @@ fun GameScreen(
                                                     color = if (isSelected) Color(0xFF55E6C1) else Color.White.copy(alpha = 0.05f),
                                                     shape = RoundedCornerShape(12.dp)
                                                 )
-                                                .clickable { selectedAccessory = accessory }
+                                                .clickable { viewModel.setAccessory(accessory) }
                                                 .padding(horizontal = 14.dp, vertical = 10.dp),
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.SpaceBetween

@@ -10,6 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.ViewModelProvider
 import com.example.data.GameDatabase
 import com.example.data.HighScoreRepository
+import com.example.data.SettingsRepository
 import com.example.game.GameScreen
 import com.example.game.GameViewModel
 import com.example.game.GameViewModelFactory
@@ -27,9 +28,13 @@ class MainActivity : ComponentActivity() {
     // Initialize Room Database & repositories
     val database = GameDatabase.getDatabase(applicationContext)
     val repository = HighScoreRepository(database.highScoreDao())
+    val settingsRepository = SettingsRepository(applicationContext)
 
     // Instantiate Main Video Game ViewModel using simple factory pattern in constructor injection
-    val viewModel = ViewModelProvider(this, GameViewModelFactory(repository))[GameViewModel::class.java]
+    val viewModel = ViewModelProvider(
+      this,
+      GameViewModelFactory(repository, settingsRepository)
+    )[GameViewModel::class.java]
 
     setContent {
       MyApplicationTheme {

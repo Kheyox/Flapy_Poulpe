@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.data.HighScore
 import com.example.data.HighScoreRepository
+import com.example.data.SettingsRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -65,7 +66,17 @@ data class StarParticle(
     val life: Float
 )
 
-class GameViewModel(private val repository: HighScoreRepository) : ViewModel() {
+class GameViewModel(
+    private val repository: HighScoreRepository,
+    private val settings: SettingsRepository
+) : ViewModel() {
+
+    companion object {
+        // Single source of truth for the octopus hitbox. The head is drawn with a
+        // radius of 30; we use a slightly smaller value so collisions feel fair
+        // rather than punishing, and stay consistent between walls and bounds.
+        const val OCTOPUS_RADIUS = 28f
+    }
 
     private val _gameScreenState = MutableStateFlow(GameScreenState.MENU)
     val gameScreenState: StateFlow<GameScreenState> = _gameScreenState.asStateFlow()
@@ -94,6 +105,12 @@ class GameViewModel(private val repository: HighScoreRepository) : ViewModel() {
     private val _playerName = MutableStateFlow("Explorateur")
     val playerName: StateFlow<String> = _playerName.asStateFlow()
 
+    private val _selectedSkin = MutableStateFlow(OctopusSkin.CLASSIC)
+    val selectedSkin: StateFlow<OctopusSkin> = _selectedSkin.asStateFlow()
+
+    private val _selectedAccessory = MutableStateFlow(OctopusAccessory.NONE)
+    val selectedAccessory: StateFlow<OctopusAccessory> = _selectedAccessory.asStateFlow()
+
     private val _waveTime = MutableStateFlow(0f)
     val waveTime: StateFlow<Float> = _waveTime.asStateFlow()
 
@@ -119,6 +136,15 @@ class GameViewModel(private val repository: HighScoreRepository) : ViewModel() {
     private var gameJob: Job? = null
 
     init {
+        // Restore persisted cosmetic choices and player name
+        settings.skinName?.let { saved ->
+            OctopusSkin.values().firstOrNull { it.name == saved }?.let { _selectedSkin.value = it }
+        }
+        settings.accessoryName?.let { saved ->
+            OctopusAccessory.values().firstOrNull { it.name == saved }?.let { _selectedAccessory.value = it }
+        }
+        settings.playerName?.let { _playerName.value = it }
+
         // Hydrate background with ambient bubbles on start
         val initialAmbientBubbles = List(25) {
             Bubble(
@@ -137,7 +163,18 @@ class GameViewModel(private val repository: HighScoreRepository) : ViewModel() {
     fun setPlayerName(name: String) {
         if (name.length <= 12) {
             _playerName.value = name
+            settings.playerName = name
         }
+    }
+
+    fun setSkin(skin: OctopusSkin) {
+        _selectedSkin.value = skin
+        settings.skinName = skin.name
+    }
+
+    fun setAccessory(accessory: OctopusAccessory) {
+        _selectedAccessory.value = accessory
+        settings.accessoryName = accessory.name
     }
 
     fun swim() {
@@ -202,7 +239,7 @@ class GameViewModel(private val repository: HighScoreRepository) : ViewModel() {
         _octopusY.value = nextOctopusY
 
         // 2. Bound check (crash when hitting surface or bottom depths)
-        if (nextOctopusY - 32f < 0f || nextOctopusY + 32f > 1000f) {
+        if (nextOctopusY - OCTOPUS_RADIUS < 0f || nextOctopusY + OCTOPUS_RADIUS > 1000f) {
             endGame()
             return
         }
@@ -235,11 +272,11 @@ class GameViewModel(private val repository: HighScoreRepository) : ViewModel() {
 
             // Precisely check circle-to-rectangle collisions with both coral columns
             val topCrash = checkCircleRectCollision(
-                circleX = 220f, circleY = _octopusY.value, radius = 28f,
+                circleX = 220f, circleY = _octopusY.value, radius = OCTOPUS_RADIUS,
                 rectX1 = nextX, rectY1 = 0f, rectX2 = nextX + obs.width, rectY2 = currentGapY - obs.gapHeight / 2f
             )
             val bottomCrash = checkCircleRectCollision(
-                circleX = 220f, circleY = _octopusY.value, radius = 28f,
+                circleX = 220f, circleY = _octopusY.value, radius = OCTOPUS_RADIUS,
                 rectX1 = nextX, rectY1 = currentGapY + obs.gapHeight / 2f, rectX2 = nextX + obs.width, rectY2 = 1000f
             )
 
@@ -462,11 +499,14 @@ class GameViewModel(private val repository: HighScoreRepository) : ViewModel() {
     }
 }
 
-class GameViewModelFactory(private val repository: HighScoreRepository) : ViewModelProvider.Factory {
+class GameViewModelFactory(
+    private val repository: HighScoreRepository,
+    private val settings: SettingsRepository
+) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(GameViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return GameViewModel(repository) as T
+            return GameViewModel(repository, settings) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }
