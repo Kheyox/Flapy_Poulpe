@@ -8,6 +8,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -55,6 +57,14 @@ enum class OctopusSkin(val skinName: String, val primaryColor: Color, val accent
     COSMIC("Abysses Violets", Color(0xFFA29BFE), Color(0xFF6C5CE7))
 }
 
+enum class OctopusAccessory(val displayName: String) {
+    NONE("Aucun accessoire ✕"),
+    CROWN("Couronne Royale 👑"),
+    SAILOR("Chapeau de Marin ⚓"),
+    SUNGLASSES("Lunettes de Soleil 😎"),
+    PIRATE_PATCH("Cache-œil de Pirate 🏴‍☠️")
+}
+
 @Composable
 fun GameScreen(
     viewModel: GameViewModel,
@@ -80,6 +90,7 @@ fun GameScreen(
     var musicVolume by remember { mutableStateOf(SoundManager.musicVolume) }
     var sfxVolume by remember { mutableStateOf(SoundManager.sfxVolume) }
     var selectedSkin by remember { mutableStateOf(OctopusSkin.CLASSIC) }
+    var selectedAccessory by remember { mutableStateOf(OctopusAccessory.NONE) }
 
     val context = LocalContext.current
     val updateManager = remember { UpdateManager(context) }
@@ -368,12 +379,61 @@ fun GameScreen(
                     center = Offset(octoX, octoY)
                 )
 
+                // --- 1. EXPANSIVE AQUATIC ACCESSORIES (CROWN / SAILOR HAT ON THE HEAD) ---
+                if (selectedAccessory == OctopusAccessory.CROWN) {
+                    val crownPath = Path().apply {
+                        moveTo(octoX - 16f, octoY - 26f)
+                        lineTo(octoX - 22f, octoY - 44f)
+                        lineTo(octoX - 8f, octoY - 34f)
+                        lineTo(octoX, octoY - 50f)
+                        lineTo(octoX + 8f, octoY - 34f)
+                        lineTo(octoX + 22f, octoY - 44f)
+                        lineTo(octoX + 16f, octoY - 26f)
+                        close()
+                    }
+                    drawPath(crownPath, Color(0xFFFFD700)) // Shiny Gold Base
+                    drawPath(crownPath, Color(0xFFD35400), style = Stroke(width = 2f))
+                    // Gemstones on tips
+                    drawCircle(Color(0xFFE74C3C), radius = 3.5f, center = Offset(octoX, octoY - 50f))
+                    drawCircle(Color(0xFF3498DB), radius = 3f, center = Offset(octoX - 22f, octoY - 44f))
+                    drawCircle(Color(0xFF2ECC71), radius = 3f, center = Offset(octoX + 22f, octoY - 44f))
+                } else if (selectedAccessory == OctopusAccessory.SAILOR) {
+                    // Marine officer cap
+                    val capPath = Path().apply {
+                        moveTo(octoX - 18f, octoY - 26f)
+                        lineTo(octoX - 22f, octoY - 38f)
+                        quadraticTo(octoX, octoY - 42f, octoX + 22f, octoY - 38f)
+                        lineTo(octoX + 18f, octoY - 26f)
+                        close()
+                    }
+                    drawPath(capPath, Color.White)
+                    drawPath(capPath, Color(0xFF2C3E50), style = Stroke(width = 1.5f))
+                    // Navy blue stripe line
+                    val bandPath = Path().apply {
+                        moveTo(octoX - 18f, octoY - 26f)
+                        lineTo(octoX - 19.5f, octoY - 29.5f)
+                        quadraticTo(octoX, octoY - 33f, octoX + 19.5f, octoY - 29.5f)
+                        lineTo(octoX + 18f, octoY - 26f)
+                        close()
+                    }
+                    drawPath(bandPath, Color(0xFF1B9CFC))
+                    // Red pompom at peak
+                    drawCircle(Color(0xFFD63031), radius = 3.5f, center = Offset(octoX, octoY - 42f))
+                }
+
                 // Render cartoon expressively reacting glowing Eyes
                 val eyeLeft = Offset(octoX - 11f, octoY - 6f)
                 val eyeRight = Offset(octoX + 11f, octoY - 6f)
                 val eyeRadius = 7.5f
 
-                if (isBlinking) {
+                if (state == GameScreenState.GAME_OVER) {
+                    // Dead or Dizzy Cross eyes (X X) representing collision crash
+                    drawLine(Color.White, start = Offset(eyeLeft.x - 4f, eyeLeft.y - 4f), end = Offset(eyeLeft.x + 4f, eyeLeft.y + 4f), strokeWidth = 2.5f)
+                    drawLine(Color.White, start = Offset(eyeLeft.x + 4f, eyeLeft.y - 4f), end = Offset(eyeLeft.x - 4f, eyeLeft.y + 4f), strokeWidth = 2.5f)
+                    
+                    drawLine(Color.White, start = Offset(eyeRight.x - 4f, eyeRight.y - 4f), end = Offset(eyeRight.x + 4f, eyeRight.y + 4f), strokeWidth = 2.5f)
+                    drawLine(Color.White, start = Offset(eyeRight.x + 4f, eyeRight.y - 4f), end = Offset(eyeRight.x - 4f, eyeRight.y + 4f), strokeWidth = 2.5f)
+                } else if (isBlinking) {
                     // Draw eye shut curves
                     drawArc(
                         color = Color.White,
@@ -398,40 +458,116 @@ fun GameScreen(
                     val pupilDirY = (velocityY * 0.005f).coerceIn(-3.5f, 3.5f)
                     val pupilDirX = if (state == GameScreenState.PLAYING) 1.5f else 0f
 
-                    // Left Eye background
-                    drawCircle(color = Color.White, radius = eyeRadius, center = eyeLeft)
-                    // Left Pupil
-                    drawCircle(
-                        color = Color(0xFF2C3E50),
-                        radius = 4f,
-                        center = Offset(eyeLeft.x + pupilDirX, eyeLeft.y + pupilDirY)
-                    )
-                    // Left Gloss dot
-                    drawCircle(
-                        color = Color.White,
-                        radius = 1.3f,
-                        center = Offset(eyeLeft.x + pupilDirX - 1.5f, eyeLeft.y + pupilDirY - 1.5f)
-                    )
+                    // Left Eye background (Draw only if no eyepatch covering it)
+                    if (selectedAccessory != OctopusAccessory.PIRATE_PATCH) {
+                        drawCircle(color = Color.White, radius = eyeRadius, center = eyeLeft)
+                        // Left Pupil
+                        drawCircle(
+                            color = Color(0xFF2C3E50),
+                            radius = 4.5f,
+                            center = Offset(eyeLeft.x + pupilDirX, eyeLeft.y + pupilDirY)
+                        )
+                        // Kawaii anime sparkles: Diagonal highlight glare circles inside pupil
+                        drawCircle(
+                            color = Color.White,
+                            radius = 1.8f,
+                            center = Offset(eyeLeft.x + pupilDirX - 1.5f, eyeLeft.y + pupilDirY - 1.5f)
+                        )
+                        drawCircle(
+                            color = Color.White,
+                            radius = 0.8f,
+                            center = Offset(eyeLeft.x + pupilDirX + 1.5f, eyeLeft.y + pupilDirY + 1.5f)
+                        )
+                    }
 
                     // Right Eye background
                     drawCircle(color = Color.White, radius = eyeRadius, center = eyeRight)
                     // Right Pupil
                     drawCircle(
                         color = Color(0xFF2C3E50),
-                        radius = 4f,
+                        radius = 4.5f,
                         center = Offset(eyeRight.x + pupilDirX, eyeRight.y + pupilDirY)
                     )
-                    // Right Gloss dot
+                    // Kawaii anime sparkles
                     drawCircle(
                         color = Color.White,
-                        radius = 1.3f,
+                        radius = 1.8f,
                         center = Offset(eyeRight.x + pupilDirX - 1.5f, eyeRight.y + pupilDirY - 1.5f)
+                    )
+                    drawCircle(
+                        color = Color.White,
+                        radius = 0.8f,
+                        center = Offset(eyeRight.x + pupilDirX + 1.5f, eyeRight.y + pupilDirY + 1.5f)
                     )
                 }
 
-                // Soft blush cheeks
-                drawCircle(Color(0x77FF1744), radius = 4f, center = Offset(octoX - 22f, octoY + 4f))
-                drawCircle(Color(0x77FF1744), radius = 4f, center = Offset(octoX + 22f, octoY + 4f))
+                // --- 2. FACIAL WEARABLE ACCESSORIES (SUNGLASSES / PIRATE EYE PATCH) ---
+                if (selectedAccessory == OctopusAccessory.SUNGLASSES) {
+                    val shadesColor = Color(0xFF2C3E50)
+                    // Draw outer round sunglasses rims
+                    drawCircle(color = shadesColor, radius = 9.5f, center = Offset(octoX - 11f, octoY - 6f))
+                    drawCircle(color = Color.White, radius = 9.5f, center = Offset(octoX - 11f, octoY - 6f), style = Stroke(width = 1.5f))
+                    drawCircle(color = shadesColor, radius = 9.5f, center = Offset(octoX + 11f, octoY - 6f))
+                    drawCircle(color = Color.White, radius = 9.5f, center = Offset(octoX + 11f, octoY - 6f), style = Stroke(width = 1.5f))
+                    // Sunglasses center connection bridge
+                    drawLine(
+                        color = shadesColor,
+                        start = Offset(octoX - 4f, octoY - 7f),
+                        end = Offset(octoX + 4f, octoY - 7f),
+                        strokeWidth = 3f
+                    )
+                    // Lateral frames
+                    drawLine(color = shadesColor, start = Offset(octoX - 22f, octoY - 8f), end = Offset(octoX - 16f, octoY - 7f), strokeWidth = 2f)
+                    drawLine(color = shadesColor, start = Offset(octoX + 16f, octoY - 7f), end = Offset(octoX + 22f, octoY - 8f), strokeWidth = 2f)
+                    // Cool reflection glares on glass lenses
+                    drawLine(Color.White.copy(alpha = 0.6f), start = Offset(octoX - 15f, octoY - 10f), end = Offset(octoX - 8f, octoY - 3f), strokeWidth = 1.5f)
+                    drawLine(Color.White.copy(alpha = 0.6f), start = Offset(octoX + 7f, octoY - 10f), end = Offset(octoX + 14f, octoY - 3f), strokeWidth = 1.5f)
+                } else if (selectedAccessory == OctopusAccessory.PIRATE_PATCH) {
+                    // Dark pirate eye patch over left eye
+                    drawCircle(color = Color(0xFF2C3E50), radius = 10f, center = Offset(octoX - 11f, octoY - 6f))
+                    // Diagonally slanting strap
+                    drawLine(
+                        color = Color(0xFF2C3E50),
+                        start = Offset(octoX - 25f, octoY - 15f),
+                        end = Offset(octoX + 5f, octoY + 2f),
+                        strokeWidth = 2.5f
+                    )
+                }
+
+                // Soft blush cheeks (Only draw if eyes aren't blocked by big sunglasses)
+                if (selectedAccessory != OctopusAccessory.SUNGLASSES) {
+                    drawCircle(Color(0x77FF1744), radius = 4f, center = Offset(octoX - 22f, octoY + 4f))
+                    drawCircle(Color(0x77FF1744), radius = 4f, center = Offset(octoX + 22f, octoY + 4f))
+                    // Tiny diagonal anime blush lines on cheeks for extreme cuteness
+                    drawLine(Color.White.copy(alpha = 0.45f), start = Offset(octoX - 24f, octoY + 5f), end = Offset(octoX - 20f, octoY + 2f), strokeWidth = 1f)
+                    drawLine(Color.White.copy(alpha = 0.45f), start = Offset(octoX + 20f, octoY + 5f), end = Offset(octoX + 24f, octoY + 2f), strokeWidth = 1f)
+                }
+
+                // Dynamic, highly adorable animated mouth
+                val mouthCenter = Offset(octoX, octoY + 6f)
+                if (state == GameScreenState.GAME_OVER) {
+                    // Sad wavy mouth during game over state
+                    val sadPath = Path().apply {
+                        moveTo(mouthCenter.x - 5f, mouthCenter.y + 4f)
+                        quadraticTo(mouthCenter.x, mouthCenter.y, mouthCenter.x + 5f, mouthCenter.y + 4f)
+                    }
+                    drawPath(sadPath, Color(0xFFD63031), style = Stroke(width = 2.5f, cap = StrokeCap.Round))
+                } else {
+                    val speedY = velocityY
+                    if (speedY < -120f) {
+                        // "O" mouth for swimming efforts
+                        drawCircle(color = Color(0xFFD63031), radius = 3.2f, center = mouthCenter)
+                        drawCircle(color = Color(0xFFFF7675), radius = 1.3f, center = Offset(mouthCenter.x, mouthCenter.y + 1f))
+                    } else {
+                        // Double-curve ":3" sweet happy smile
+                        val happyPath = Path().apply {
+                            moveTo(mouthCenter.x - 4f, mouthCenter.y + 1f)
+                            quadraticTo(mouthCenter.x - 2f, mouthCenter.y + 4.2f, mouthCenter.x, mouthCenter.y + 1.5f)
+                            quadraticTo(mouthCenter.x + 2f, mouthCenter.y + 4.2f, mouthCenter.x + 4f, mouthCenter.y + 1f)
+                        }
+                        drawPath(happyPath, Color(0xFF2C3E50), style = Stroke(width = 2f, cap = StrokeCap.Round))
+                    }
+                }
             }
         }
 
@@ -832,22 +968,35 @@ fun GameScreen(
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
+                                        .fillMaxHeight(0.85f)
                                         .clip(RoundedCornerShape(24.dp))
-                                        .background(Color.Black.copy(alpha = 0.45f))
-                                        .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(24.dp))
+                                        .background(Color.Black.copy(alpha = 0.55f))
+                                        .border(1.5.dp, Color(0xFF1B9CFC).copy(alpha = 0.3f), RoundedCornerShape(24.dp))
+                                        .verticalScroll(rememberScrollState())
                                         .padding(16.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
                                     Text(
-                                        text = "PERSONNALISER VOTRE POULPE",
-                                        color = Color.White,
+                                        text = "PERSONNALISATION DU POULPE",
+                                        color = Color(0xFF55E6C1),
                                         fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold,
+                                        fontWeight = FontWeight.Black,
                                         letterSpacing = 1.sp,
-                                        modifier = Modifier.padding(bottom = 12.dp)
+                                        modifier = Modifier.padding(bottom = 16.dp)
                                     )
                                     
-                                    // List of skins
+                                    // SECTION 1: Skins Colors
+                                    Text(
+                                        text = "🎨 COULEURS DE PEAU",
+                                        color = Color.White.copy(alpha = 0.85f),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 0.5.sp,
+                                        modifier = Modifier
+                                            .align(Alignment.Start)
+                                            .padding(bottom = 8.dp)
+                                    )
+
                                     OctopusSkin.values().forEach { skin ->
                                         val isSelected = selectedSkin == skin
                                         Row(
@@ -856,8 +1005,8 @@ fun GameScreen(
                                                 .padding(vertical = 4.dp)
                                                 .clip(RoundedCornerShape(12.dp))
                                                 .background(
-                                                    if (isSelected) Color.White.copy(alpha = 0.12f)
-                                                    else Color.Transparent
+                                                    if (isSelected) Color(0xFF1B9CFC).copy(alpha = 0.15f)
+                                                    else Color.White.copy(alpha = 0.04f)
                                                 )
                                                 .border(
                                                     width = 1.dp,
@@ -865,7 +1014,7 @@ fun GameScreen(
                                                     shape = RoundedCornerShape(12.dp)
                                                 )
                                                 .clickable { selectedSkin = skin }
-                                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                                                .padding(horizontal = 14.dp, vertical = 10.dp),
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.SpaceBetween
                                         ) {
@@ -885,15 +1034,70 @@ fun GameScreen(
                                                 Text(
                                                     text = skin.skinName,
                                                     color = Color.White,
-                                                    fontSize = 14.sp,
+                                                    fontSize = 13.sp,
                                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                                                 )
                                             }
                                             if (isSelected) {
                                                 Text(
-                                                    text = "ACTIF",
+                                                    text = "ÉQUIPÉ",
                                                     color = Color(0xFF55E6C1),
-                                                    fontSize = 11.sp,
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Black,
+                                                    letterSpacing = 1.sp
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(20.dp))
+
+                                    // SECTION 2: Accessories Cosmetics
+                                    Text(
+                                        text = "👑 ACCESSOIRES ET CHAPEAUX",
+                                        color = Color.White.copy(alpha = 0.85f),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 0.5.sp,
+                                        modifier = Modifier
+                                            .align(Alignment.Start)
+                                            .padding(bottom = 8.dp)
+                                    )
+
+                                    OctopusAccessory.values().forEach { accessory ->
+                                        val isSelected = selectedAccessory == accessory
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 4.dp)
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .background(
+                                                    if (isSelected) Color(0xFF1B9CFC).copy(alpha = 0.15f)
+                                                    else Color.White.copy(alpha = 0.04f)
+                                                )
+                                                .border(
+                                                    width = 1.dp,
+                                                    color = if (isSelected) Color(0xFF55E6C1) else Color.White.copy(alpha = 0.05f),
+                                                    shape = RoundedCornerShape(12.dp)
+                                                )
+                                                .clickable { selectedAccessory = accessory }
+                                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(
+                                                    text = accessory.displayName,
+                                                    color = Color.White,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                                )
+                                            }
+                                            if (isSelected) {
+                                                Text(
+                                                    text = "ÉQUIPÉ",
+                                                    color = Color(0xFF55E6C1),
+                                                    fontSize = 10.sp,
                                                     fontWeight = FontWeight.Black,
                                                     letterSpacing = 1.sp
                                                 )
