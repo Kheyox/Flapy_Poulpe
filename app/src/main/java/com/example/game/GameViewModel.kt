@@ -40,7 +40,7 @@ val ALL_ACHIEVEMENTS = listOf(
     Achievement("fifty_games", "🏊", "Marathonien des Mers", "Jouer 50 parties", 150),
     Achievement("score_30", "⭐", "Explorateur Confirmé", "Atteindre 30 points", 75),
     Achievement("score_60", "🌌", "Maître des Abysses", "Atteindre 60 points et survivre à l'obscurité", 200),
-    Achievement("combo_5", "🔥", "Enchaînement Parfait", "Réaliser un combo de perles x5", 100),
+    Achievement("pearls_25_run", "🌪", "Aspirateur des Mers", "Collecter 25 perles en une seule partie", 100),
     Achievement("pearls_500", "🦪", "Trésor Vivant", "Collecter 500 perles au total", 150),
     Achievement("level_5", "🎯", "Stratège", "Réussir le niveau 5", 100),
     Achievement("level_10", "👑", "Légende de l'Océan", "Réussir le niveau 10", 300)
@@ -58,16 +58,16 @@ val MISSION_POOL = listOf(
     RunMission("score5", "Atteins 5 points en une partie", 30),
     RunMission("pearls3", "Collecte 3 perles en une partie", 30),
     RunMission("powerup1", "Ramasse un power-up", 30),
-    RunMission("combo2", "Réalise un combo de perles x2", 40),
+    RunMission("powerup2", "Ramasse 2 power-ups en une partie", 40),
     RunMission("score10", "Atteins 10 points en une partie", 50),
     RunMission("pearls8", "Collecte 8 perles en une partie", 60),
-    RunMission("combo3", "Réalise un combo de perles x3", 70),
+    RunMission("pearls12", "Collecte 12 perles en une partie", 70),
     RunMission("score20", "Atteins 20 points en une partie", 80),
     RunMission("powerup3", "Ramasse 3 power-ups en une partie", 80),
     RunMission("noshield15", "Atteins 15 points sans ramasser de bouclier", 90),
     RunMission("pearls15", "Collecte 15 perles en une partie", 110),
     RunMission("score35", "Atteins 35 points en une partie", 120),
-    RunMission("combo5", "Réalise un combo de perles x5", 150),
+    RunMission("pearls25", "Collecte 25 perles en une partie", 150),
     RunMission("score60", "Atteins 60 points en une partie", 200)
 )
 
@@ -178,10 +178,6 @@ class GameViewModel(
     private val _slowMoTime = MutableStateFlow(0f)
     val slowMoTime: StateFlow<Float> = _slowMoTime.asStateFlow()
 
-    // Consecutive pearls collected without missing one — multiplies pearl score.
-    private val _combo = MutableStateFlow(0)
-    val combo: StateFlow<Int> = _combo.asStateFlow()
-
     // True while the octopus is briefly invulnerable after a shield save.
     private val _invuln = MutableStateFlow(false)
     val invuln: StateFlow<Boolean> = _invuln.asStateFlow()
@@ -241,9 +237,8 @@ class GameViewModel(
     private var gamesCountedThisRun = false
     private var pearlsStatCounted = 0
 
-    // Per-run stats feeding the daily mission checks
+    // Per-run stats feeding the mission checks
     private var runPearls = 0
-    private var runMaxCombo = 0
     private var runPowerUps = 0
     private var runShieldPicked = false
     private var pearlsBankedThisRun = 0
@@ -444,14 +439,12 @@ class GameViewModel(
         _shieldCharges.value = 0
         _magnetTime.value = 0f
         _slowMoTime.value = 0f
-        _combo.value = 0
         invulnTime = 0f
         _invuln.value = false
         _newRecord.value = false
         _levelCompleted.value = false
         _missionsJustCompleted.value = emptyList()
         runPearls = 0
-        runMaxCombo = 0
         runPowerUps = 0
         runShieldPicked = false
         pearlsBankedThisRun = 0
@@ -618,19 +611,15 @@ class GameViewModel(
             }
 
             if (nextX + 40f < 0f) {
-                // Pearl escaped off-screen: the combo chain is broken
-                _combo.value = 0
-                continue
+                continue // pearl escaped off-screen
             }
 
             // Check collision with octopus
             val distSq = (220f - nextX) * (220f - nextX) + (_octopusY.value - nextY) * (_octopusY.value - nextY)
             if (distSq < (30f + 16f) * (30f + 16f)) {
-                // Build the combo and award 5 points times the multiplier
-                _combo.value += 1
-                _score.value += 5 * _combo.value
+                // Flat pearl value: simple and readable, no combo bookkeeping
+                _score.value += 5
                 runPearls += 1
-                runMaxCombo = maxOf(runMaxCombo, _combo.value)
                 SoundManager.playCollect() // Play special collect chime!
                 triggerPearlExplosion(nextX, nextY)
                 continue
@@ -797,16 +786,16 @@ class GameViewModel(
         "score5" -> _score.value >= 5
         "pearls3" -> runPearls >= 3
         "powerup1" -> runPowerUps >= 1
-        "combo2" -> runMaxCombo >= 2
+        "powerup2" -> runPowerUps >= 2
         "score10" -> _score.value >= 10
         "pearls8" -> runPearls >= 8
-        "combo3" -> runMaxCombo >= 3
+        "pearls12" -> runPearls >= 12
         "score20" -> _score.value >= 20
         "powerup3" -> runPowerUps >= 3
         "noshield15" -> _score.value >= 15 && !runShieldPicked
         "pearls15" -> runPearls >= 15
         "score35" -> _score.value >= 35
-        "combo5" -> runMaxCombo >= 5
+        "pearls25" -> runPearls >= 25
         "score60" -> _score.value >= 60
         else -> false
     }
@@ -889,7 +878,7 @@ class GameViewModel(
                 "fifty_games" -> totalGames >= 50
                 "score_30" -> _score.value >= 30
                 "score_60" -> _score.value >= 60
-                "combo_5" -> runMaxCombo >= 5
+                "pearls_25_run" -> runPearls >= 25
                 "pearls_500" -> totalPearlsCollected >= 500
                 "level_5" -> _levelCompleted.value && _currentLevel.value >= 5
                 "level_10" -> _levelCompleted.value && _currentLevel.value >= 10

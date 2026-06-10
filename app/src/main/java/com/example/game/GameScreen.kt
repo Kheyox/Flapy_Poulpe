@@ -49,8 +49,10 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.HighScore
 import kotlin.math.cos
@@ -100,7 +102,6 @@ fun GameScreen(
     val shieldCharges by viewModel.shieldCharges.collectAsStateWithLifecycle()
     val magnetTime by viewModel.magnetTime.collectAsStateWithLifecycle()
     val slowMoTime by viewModel.slowMoTime.collectAsStateWithLifecycle()
-    val combo by viewModel.combo.collectAsStateWithLifecycle()
     val invuln by viewModel.invuln.collectAsStateWithLifecycle()
     val bubbles by viewModel.bubbles.collectAsStateWithLifecycle()
     val particles by viewModel.particles.collectAsStateWithLifecycle()
@@ -168,10 +169,16 @@ fun GameScreen(
         updateManager.watchForUpdates()
     }
 
-    // Haptic feedback: a short buzz when the run ends on a crash
+    // Crash impact: a short buzz plus a quick screen shake for physical feedback
+    val shakeOffset = remember { Animatable(0f) }
     LaunchedEffect(state) {
         if (state == GameScreenState.GAME_OVER && !levelCompleted) {
             vibrateCrash(context)
+            repeat(5) { i ->
+                val magnitude = 14f - i * 2.5f
+                shakeOffset.animateTo(if (i % 2 == 0) magnitude else -magnitude, tween(45))
+            }
+            shakeOffset.animateTo(0f, tween(45))
         }
     }
 
@@ -189,6 +196,7 @@ fun GameScreen(
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
+                .offset { IntOffset(shakeOffset.value.roundToInt(), 0) }
                 .testTag("game_canvas")
                 .clickable(
                     interactionSource = interactionSource,
@@ -278,6 +286,26 @@ fun GameScreen(
                             close()
                         }
                         drawPath(tail, silhouette)
+
+                        // Small companions in formation turn lone fish into a school
+                        if (i % 2 == 0) {
+                            for (s in 0..1) {
+                                val ox = fx + 42f + s * 26f
+                                val oy = fy + (if (s == 0) -22f else 18f) + sin(waveTime * 3f + s + i).toFloat() * 5f
+                                drawOval(
+                                    color = silhouette,
+                                    topLeft = Offset(ox - 10f, oy - 4f),
+                                    size = Size(20f, 8f)
+                                )
+                                val miniTail = Path().apply {
+                                    moveTo(ox + 8f, oy)
+                                    lineTo(ox + 15f, oy - 5f)
+                                    lineTo(ox + 15f, oy + 5f)
+                                    close()
+                                }
+                                drawPath(miniTail, silhouette)
+                            }
+                        }
                     }
                 }
 
@@ -335,6 +363,20 @@ fun GameScreen(
                 ).forEach { (rx, ry, rr) ->
                     drawCircle(Color(0xFF14506E).copy(alpha = 0.8f * rockDim), radius = rr, center = Offset(rx, ry + rr * 0.55f))
                     drawCircle(Color(0xFF1B6A8F).copy(alpha = 0.5f * rockDim), radius = rr * 0.55f, center = Offset(rx - rr * 0.3f, ry + rr * 0.35f))
+                }
+
+                // Hydrothermal vents: thin bubble streams rising from the seabed
+                for (v in 0 until 3) {
+                    val vx = 160f + v * 340f
+                    val vk = 2 + v
+                    for (b in 0 until 5) {
+                        val prog = (((waveTime * vk) % twoPi) / twoPi + b * 0.2f) % 1f
+                        drawCircle(
+                            color = Color.White.copy(alpha = 0.14f * (1f - prog)),
+                            radius = 2f + prog * 3f,
+                            center = Offset(vx + sin(prog * 12f + b + v).toFloat() * 9f, 1000f - prog * 880f)
+                        )
+                    }
                 }
 
                 if (reefAlpha > 0.01f) {
@@ -607,42 +649,75 @@ fun GameScreen(
                 val octoScaleY = 1f + jetStretch * 0.20f - sinkSpread * 0.08f - mantleBreath
                 scale(scaleX = octoScaleX, scaleY = octoScaleY, pivot = Offset(octoX, octoY)) {
 
-                // Render Octopus tentacles
+                // Render Octopus tentacles as organic tapered shapes: wide at the
+                // mantle, thinning to a point, with the tip curling like a real arm.
                 for (t in 0 until 6) {
                     val frac = t / 5f
-                    val rawAngle = -0.45f + frac * 0.9f
+                    val rawAngle = -0.5f + frac * 1.0f
                     // Drag tentacles backward depending on swimming velocities
                     val speedDrag = (velocityY * 0.0011f).coerceIn(-0.55f, 0.55f)
                     val finalAngle = rawAngle + speedDrag
-                    
-                    val waveMult = sin(waveTime * 11f - t * 1.2f).toFloat() * 11f
-                    val tLen = 68f
-                    
-                    val tStart = Offset(octoX, octoY + 14f)
-                    val controlX = octoX + sin(finalAngle).toFloat() * (tLen * 0.45f) + waveMult * 0.35f
-                    val controlY = octoY + 14f + cos(finalAngle).toFloat() * (tLen * 0.45f)
-                    
-                    val endX = octoX + sin(finalAngle).toFloat() * tLen + waveMult
-                    val endY = octoY + 14f + cos(finalAngle).toFloat() * tLen
+                    val wave = sin(waveTime * 7f - t * 1.2f).toFloat()
+                    val tLen = if (t % 2 == 0) 64f else 72f
 
-                    val tPath = Path().apply {
-                        moveTo(tStart.x, tStart.y)
-                        quadraticTo(controlX, controlY, endX, endY)
+                    val sx = octoX + sin(finalAngle) * 9f
+                    val sy = octoY + 15f
+                    val cx = octoX + sin(finalAngle) * (tLen * 0.5f) + wave * 5f
+                    val cy = sy + cos(finalAngle) * (tLen * 0.55f)
+                    val ex = octoX + sin(finalAngle) * tLen + wave * 10f
+                    val ey = sy + cos(finalAngle) * tLen
+                    // The very tip curls sideways, away from the body axis
+                    val curlDir = if (t < 3) -1f else 1f
+                    val tipX = ex + (sin(finalAngle) * 6f + curlDir * 8f) + wave * 4f
+                    val tipY = ey + cos(finalAngle) * 4f - 4f
+
+                    // Sample the centerline (quadratic Bézier + curled tip)
+                    val spine = mutableListOf<Offset>()
+                    for (j in 0..7) {
+                        val u = j / 7f
+                        val px = (1 - u) * (1 - u) * sx + 2 * (1 - u) * u * cx + u * u * ex
+                        val py = (1 - u) * (1 - u) * sy + 2 * (1 - u) * u * cy + u * u * ey
+                        spine.add(Offset(px, py))
                     }
+                    spine.add(Offset(tipX, tipY))
 
-                    // Body matching selected skin colors
+                    // Build the tapered outline around the spine
+                    val leftEdge = mutableListOf<Offset>()
+                    val rightEdge = mutableListOf<Offset>()
+                    val lastIndex = spine.size - 1
+                    for (j in spine.indices) {
+                        val dir = if (j < lastIndex) spine[j + 1] - spine[j] else spine[j] - spine[j - 1]
+                        val dLen = kotlin.math.sqrt(dir.x * dir.x + dir.y * dir.y).coerceAtLeast(0.001f)
+                        val nx = -dir.y / dLen
+                        val ny = dir.x / dLen
+                        val halfWidth = 10f * (1f - j / lastIndex.toFloat()) + 1.2f
+                        leftEdge.add(Offset(spine[j].x + nx * halfWidth, spine[j].y + ny * halfWidth))
+                        rightEdge.add(Offset(spine[j].x - nx * halfWidth, spine[j].y - ny * halfWidth))
+                    }
+                    val tentaclePath = Path().apply {
+                        moveTo(leftEdge[0].x, leftEdge[0].y)
+                        leftEdge.drop(1).forEach { lineTo(it.x, it.y) }
+                        rightEdge.reversed().forEach { lineTo(it.x, it.y) }
+                        close()
+                    }
                     drawPath(
-                        path = tPath,
+                        path = tentaclePath,
                         brush = Brush.verticalGradient(
                             colors = listOf(selectedSkin.primaryColor, selectedSkin.accentColor),
                             startY = octoY,
-                            endY = octoY + 90f
-                        ),
-                        style = Stroke(width = 8f, cap = StrokeCap.Round)
+                            endY = octoY + 95f
+                        )
                     )
-                    // Interactive suction cups (little pink spots on curves)
-                    drawCircle(Color(0xFFFF8A80), radius = 3.5f, center = Offset(endX, endY))
-                    drawCircle(Color(0xFFFF8A80), radius = 4f, center = Offset(controlX, controlY))
+                    // Subtle lighter underside along the inner edge sells the volume
+                    val innerHighlight = Path().apply {
+                        moveTo(rightEdge[1].x, rightEdge[1].y)
+                        for (j in 2 until rightEdge.size - 1) lineTo(rightEdge[j].x, rightEdge[j].y)
+                    }
+                    drawPath(
+                        path = innerHighlight,
+                        color = Color.White.copy(alpha = 0.18f),
+                        style = Stroke(width = 2f, cap = StrokeCap.Round)
+                    )
                 }
 
                 // Draw Octopus Head/Body
@@ -1027,7 +1102,7 @@ fun GameScreen(
                     }
                 }
 
-                // Active power-up effects + combo indicator
+                // Active power-up effects
                 Column(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
@@ -1064,34 +1139,6 @@ fun GameScreen(
                         }
                     }
 
-                    if (combo >= 2) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        val comboTransition = rememberInfiniteTransition(label = "combo")
-                        val comboScale by comboTransition.animateFloat(
-                            initialValue = 0.95f,
-                            targetValue = 1.1f,
-                            animationSpec = infiniteRepeatable(
-                                animation = tween(500, easing = FastOutSlowInEasing),
-                                repeatMode = RepeatMode.Reverse
-                            ),
-                            label = "combo_scale"
-                        )
-                        Text(
-                            text = "COMBO x$combo",
-                            color = Color(0xFFFFD700),
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.Black,
-                            letterSpacing = 1.sp,
-                            modifier = Modifier.scale(comboScale),
-                            style = TextStyle(
-                                shadow = Shadow(
-                                    color = Color(0xFFFF9F43),
-                                    offset = Offset(0f, 0f),
-                                    blurRadius = 12f
-                                )
-                            )
-                        )
-                    }
                 }
 
                 // Pause button (below the best-score block, top right)
@@ -2343,13 +2390,16 @@ fun GameScreen(
                     .systemBarsPadding(),
                 contentAlignment = Alignment.Center
             ) {
+                // Scrollable: with medals, missions and trophies stacking up, the card
+                // could overflow and crush the action buttons on long runs.
                 Column(
                     modifier = Modifier
                         .fillMaxWidth(0.88f)
                         .clip(RoundedCornerShape(28.dp))
                         .background(Color(0xFF0F2027).copy(alpha = 0.95f))
                         .border(1.5.dp, Color(0xFFDE1057).copy(alpha = 0.6f), RoundedCornerShape(28.dp))
-                        .padding(24.dp),
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 24.dp, vertical = 18.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
