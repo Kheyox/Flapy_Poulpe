@@ -1,5 +1,10 @@
 package com.example.game
 
+import android.content.Context
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
@@ -51,19 +56,21 @@ import com.example.data.HighScore
 import kotlin.math.cos
 import kotlin.math.sin
 
-enum class OctopusSkin(val skinName: String, val primaryColor: Color, val accentColor: Color) {
-    CLASSIC("Rosé Classique", Color(0xFFFF7675), Color(0xFFD63031)),
-    MINT("Menthe Néon", Color(0xFF55E6C1), Color(0xFF1B9CFC)),
-    GOLD("Éclat d'Or", Color(0xFFFFD700), Color(0xFFFF9F43)),
-    COSMIC("Abysses Violets", Color(0xFFA29BFE), Color(0xFF6C5CE7))
+// Cosmetics unlock as the best score climbs (requiredScore), giving a progression goal.
+enum class OctopusSkin(val skinName: String, val primaryColor: Color, val accentColor: Color, val requiredScore: Int) {
+    CLASSIC("Rosé Classique", Color(0xFFFF7675), Color(0xFFD63031), 0),
+    MINT("Menthe Néon", Color(0xFF55E6C1), Color(0xFF1B9CFC), 15),
+    GOLD("Éclat d'Or", Color(0xFFFFD700), Color(0xFFFF9F43), 40),
+    COSMIC("Abysses Violets", Color(0xFFA29BFE), Color(0xFF6C5CE7), 80)
 }
 
-enum class OctopusAccessory(val displayName: String) {
-    NONE("Aucun accessoire ✕"),
-    CROWN("Couronne Royale 👑"),
-    SAILOR("Chapeau de Marin ⚓"),
-    SUNGLASSES("Lunettes de Soleil 😎"),
-    PIRATE_PATCH("Cache-œil de Pirate 🏴‍☠️")
+// The pirate patch is special: it's the daily-mission reward, not a score unlock.
+enum class OctopusAccessory(val displayName: String, val requiredScore: Int, val missionReward: Boolean = false) {
+    NONE("Aucun accessoire ✕", 0),
+    CROWN("Couronne Royale 👑", 50),
+    SAILOR("Chapeau de Marin ⚓", 10),
+    SUNGLASSES("Lunettes de Soleil 😎", 25),
+    PIRATE_PATCH("Cache-œil de Pirate 🏴‍☠️", 0, missionReward = true)
 }
 
 @Composable
@@ -90,6 +97,16 @@ fun GameScreen(
     val highestScore by viewModel.highestScore.collectAsStateWithLifecycle()
     val playerName by viewModel.playerName.collectAsStateWithLifecycle()
     val highScoreSaved by viewModel.highScoreSaved.collectAsStateWithLifecycle()
+    val jellyfish by viewModel.jellyfish.collectAsStateWithLifecycle()
+    val currents by viewModel.currents.collectAsStateWithLifecycle()
+    val gameMode by viewModel.gameMode.collectAsStateWithLifecycle()
+    val currentLevel by viewModel.currentLevel.collectAsStateWithLifecycle()
+    val maxUnlockedLevel by viewModel.maxUnlockedLevel.collectAsStateWithLifecycle()
+    val levelCompleted by viewModel.levelCompleted.collectAsStateWithLifecycle()
+    val newRecord by viewModel.newRecord.collectAsStateWithLifecycle()
+    val missionCompletedToday by viewModel.missionCompletedToday.collectAsStateWithLifecycle()
+    val missionJustCompleted by viewModel.missionJustCompleted.collectAsStateWithLifecycle()
+    val missionsCompletedCount by viewModel.missionsCompletedCount.collectAsStateWithLifecycle()
 
     val interactionSource = remember { MutableInteractionSource() }
 
@@ -123,6 +140,13 @@ fun GameScreen(
     // Watch the GitHub repo: check at launch, then re-check periodically in background
     LaunchedEffect(Unit) {
         updateManager.watchForUpdates()
+    }
+
+    // Haptic feedback: a short buzz when the run ends on a crash
+    LaunchedEffect(state) {
+        if (state == GameScreenState.GAME_OVER && !levelCompleted) {
+            vibrateCrash(context)
+        }
     }
 
     Box(
@@ -228,6 +252,38 @@ fun GameScreen(
                     )
                 }
 
+                // C2. Marine current zones (translucent band + direction chevrons)
+                currents.forEach { current ->
+                    val goesUp = current.force < 0f
+                    val bandColor = if (goesUp) Color(0xFF55E6C1) else Color(0xFF1B9CFC)
+                    drawRect(
+                        brush = Brush.horizontalGradient(
+                            colors = listOf(
+                                bandColor.copy(alpha = 0f),
+                                bandColor.copy(alpha = 0.13f),
+                                bandColor.copy(alpha = 0f)
+                            ),
+                            startX = current.x,
+                            endX = current.x + current.width
+                        ),
+                        topLeft = Offset(current.x, 0f),
+                        size = Size(current.width, 1000f)
+                    )
+                    // Animated chevrons showing the push direction
+                    val chevronX = current.x + current.width / 2f
+                    val drift = (waveTime * 160f) % 250f
+                    for (i in 0..4) {
+                        val baseY = if (goesUp) 1000f - (i * 250f + drift) else (i * 250f + drift)
+                        val tip = if (goesUp) baseY - 26f else baseY + 26f
+                        val chevron = Path().apply {
+                            moveTo(chevronX - 22f, baseY)
+                            lineTo(chevronX, tip)
+                            lineTo(chevronX + 22f, baseY)
+                        }
+                        drawPath(chevron, bandColor.copy(alpha = 0.4f), style = Stroke(width = 5f, cap = StrokeCap.Round))
+                    }
+                }
+
                 // D. Obstacle Coral Columns
                 obstacles.forEach { obstacle ->
                     val isOrange = (obstacle.gapY.toInt() % 2 == 0)
@@ -289,6 +345,50 @@ fun GameScreen(
                         cornerRadius = CornerRadius(6f, 6f),
                         style = Stroke(width = 3.5f)
                     )
+                }
+
+                // D2. Jellyfish hazards (translucent dome + trailing tentacles)
+                jellyfish.forEach { jelly ->
+                    val jCenter = Offset(jelly.x, jelly.y)
+                    val pulse = 1f + sin(waveTime * 5f + jelly.phase).toFloat() * 0.08f
+                    val domeR = jelly.radius * pulse
+
+                    // Soft glow
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(Color(0x66FF9FF3), Color(0x00FF9FF3)),
+                            center = jCenter,
+                            radius = domeR * 1.9f
+                        ),
+                        radius = domeR * 1.9f,
+                        center = jCenter
+                    )
+                    // Dome (upper half)
+                    drawArc(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(Color(0xFFFF9FF3), Color(0xFFCD84F1)),
+                            startY = jelly.y - domeR,
+                            endY = jelly.y + domeR * 0.4f
+                        ),
+                        startAngle = 180f,
+                        sweepAngle = 180f,
+                        useCenter = true,
+                        topLeft = Offset(jelly.x - domeR, jelly.y - domeR),
+                        size = Size(domeR * 2f, domeR * 2f)
+                    )
+                    // Wavy tentacles below the dome
+                    for (t in -2..2) {
+                        val tx = jelly.x + t * (domeR * 0.4f)
+                        val sway = sin(waveTime * 7f + jelly.phase + t).toFloat() * 7f
+                        val tentacle = Path().apply {
+                            moveTo(tx, jelly.y)
+                            quadraticTo(tx + sway, jelly.y + 22f, tx - sway * 0.6f, jelly.y + 42f)
+                        }
+                        drawPath(tentacle, Color(0xFFCD84F1).copy(alpha = 0.75f), style = Stroke(width = 3.5f, cap = StrokeCap.Round))
+                    }
+                    // Sleepy eyes
+                    drawCircle(Color(0xFF2C3E50), radius = 2.5f, center = Offset(jelly.x - 8f, jelly.y - 8f))
+                    drawCircle(Color(0xFF2C3E50), radius = 2.5f, center = Offset(jelly.x + 8f, jelly.y - 8f))
                 }
 
                 // E. Collectible Golden Pearls
@@ -667,6 +767,25 @@ fun GameScreen(
                         drawPath(happyPath, Color(0xFF2C3E50), style = Stroke(width = 2f, cap = StrokeCap.Round))
                     }
                 }
+
+                // H. ABYSSAL DARKNESS — deep biomes close in around the octopus,
+                // leaving only a halo of light near the player (score >= 60).
+                if (state == GameScreenState.PLAYING && score >= 60) {
+                    val darkness = (((score - 60) / 30f).coerceIn(0f, 1f)) * 0.55f
+                    drawRect(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                Color.Transparent,
+                                Color(0xFF000814).copy(alpha = darkness)
+                            ),
+                            center = Offset(octoX, octoY),
+                            radius = 620f
+                        ),
+                        topLeft = Offset(-50f, -50f),
+                        size = Size(1100f, 1100f)
+                    )
+                }
             }
         }
 
@@ -780,6 +899,16 @@ fun GameScreen(
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 2.sp
                     )
+                    if (gameMode == GameMode.LEVELS) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "NIVEAU $currentLevel · OBJECTIF ${viewModel.levelTarget(currentLevel)} PTS",
+                            color = Color(0xFFFFD700).copy(alpha = 0.85f),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 1.sp
+                        )
+                    }
                     Spacer(modifier = Modifier.height(6.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (shieldCharges > 0) {
@@ -986,6 +1115,142 @@ fun GameScreen(
                                             .padding(bottom = 16.dp)
                                     )
 
+                                    // MODE SELECTOR: endless run vs fixed-objective levels
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(bottom = 10.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        listOf(
+                                            GameMode.INFINITE to "🌊 INFINI",
+                                            GameMode.LEVELS to "🎯 NIVEAUX"
+                                        ).forEach { (mode, label) ->
+                                            val isSel = gameMode == mode
+                                            Box(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .clip(RoundedCornerShape(10.dp))
+                                                    .background(
+                                                        if (isSel) Color(0xFF1B9CFC).copy(alpha = 0.3f)
+                                                        else Color.White.copy(alpha = 0.06f)
+                                                    )
+                                                    .border(
+                                                        1.dp,
+                                                        if (isSel) Color(0xFF55E6C1) else Color.White.copy(alpha = 0.1f),
+                                                        RoundedCornerShape(10.dp)
+                                                    )
+                                                    .clickable { viewModel.selectMode(mode) }
+                                                    .padding(vertical = 8.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = label,
+                                                    color = if (isSel) Color(0xFF55E6C1) else Color.White.copy(alpha = 0.6f),
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Black,
+                                                    letterSpacing = 1.sp
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    // LEVEL PICKER (levels mode only): locked levels are grayed out
+                                    if (gameMode == GameMode.LEVELS) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(bottom = 10.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                        ) {
+                                            (1..GameViewModel.MAX_LEVEL).forEach { lvl ->
+                                                val unlocked = lvl <= maxUnlockedLevel
+                                                val isSel = currentLevel == lvl
+                                                Box(
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .aspectRatio(1f)
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .background(
+                                                            when {
+                                                                isSel -> Color(0xFF55E6C1)
+                                                                unlocked -> Color.White.copy(alpha = 0.1f)
+                                                                else -> Color.White.copy(alpha = 0.03f)
+                                                            }
+                                                        )
+                                                        .clickable(enabled = unlocked) { viewModel.selectLevel(lvl) },
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Text(
+                                                        text = if (unlocked) "$lvl" else "🔒",
+                                                        color = when {
+                                                            isSel -> Color(0xFF0F2027)
+                                                            unlocked -> Color.White
+                                                            else -> Color.White.copy(alpha = 0.35f)
+                                                        },
+                                                        fontSize = if (unlocked) 13.sp else 9.sp,
+                                                        fontWeight = FontWeight.Black
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        Text(
+                                            text = "Objectif du niveau $currentLevel : ${viewModel.levelTarget(currentLevel)} points",
+                                            color = Color.White.copy(alpha = 0.6f),
+                                            fontSize = 11.sp,
+                                            modifier = Modifier.padding(bottom = 10.dp)
+                                        )
+                                    }
+
+                                    // DAILY MISSION CARD
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(bottom = 14.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(
+                                                if (missionCompletedToday) Color(0xFF2ecc71).copy(alpha = 0.12f)
+                                                else Color(0xFFFF9F43).copy(alpha = 0.12f)
+                                            )
+                                            .border(
+                                                1.dp,
+                                                if (missionCompletedToday) Color(0xFF2ecc71).copy(alpha = 0.4f)
+                                                else Color(0xFFFF9F43).copy(alpha = 0.4f),
+                                                RoundedCornerShape(12.dp)
+                                            )
+                                            .padding(horizontal = 12.dp, vertical = 9.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = if (missionCompletedToday) "✅" else "🎯",
+                                            fontSize = 18.sp
+                                        )
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Column {
+                                            Text(
+                                                text = "MISSION DU JOUR",
+                                                color = if (missionCompletedToday) Color(0xFF2ecc71) else Color(0xFFFF9F43),
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Black,
+                                                letterSpacing = 1.sp
+                                            )
+                                            Text(
+                                                text = if (missionCompletedToday) "Accomplie ! Revenez demain 🐙"
+                                                       else viewModel.dailyMission.label,
+                                                color = Color.White.copy(alpha = 0.85f),
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                            if (!missionCompletedToday && missionsCompletedCount == 0) {
+                                                Text(
+                                                    text = "Récompense : Cache-œil de Pirate 🏴‍☠️",
+                                                    color = Color.White.copy(alpha = 0.5f),
+                                                    fontSize = 9.sp
+                                                )
+                                            }
+                                        }
+                                    }
+
                                     // Lancer l'exploration Play Button
                                     Button(
                                         onClick = { viewModel.startGame() },
@@ -1155,6 +1420,7 @@ fun GameScreen(
 
                                     OctopusSkin.values().forEach { skin ->
                                         val isSelected = selectedSkin == skin
+                                        val unlocked = (highestScore ?: 0) >= skin.requiredScore
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
@@ -1169,7 +1435,7 @@ fun GameScreen(
                                                     color = if (isSelected) Color(0xFF55E6C1) else Color.White.copy(alpha = 0.05f),
                                                     shape = RoundedCornerShape(12.dp)
                                                 )
-                                                .clickable { viewModel.setSkin(skin) }
+                                                .clickable(enabled = unlocked) { viewModel.setSkin(skin) }
                                                 .padding(horizontal = 14.dp, vertical = 10.dp),
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.SpaceBetween
@@ -1182,14 +1448,17 @@ fun GameScreen(
                                                         .clip(CircleShape)
                                                         .background(
                                                             Brush.linearGradient(
-                                                                colors = listOf(skin.primaryColor, skin.accentColor)
+                                                                colors = listOf(
+                                                                    skin.primaryColor.copy(alpha = if (unlocked) 1f else 0.3f),
+                                                                    skin.accentColor.copy(alpha = if (unlocked) 1f else 0.3f)
+                                                                )
                                                             )
                                                         )
                                                 )
                                                 Spacer(modifier = Modifier.width(12.dp))
                                                 Text(
                                                     text = skin.skinName,
-                                                    color = Color.White,
+                                                    color = Color.White.copy(alpha = if (unlocked) 1f else 0.4f),
                                                     fontSize = 13.sp,
                                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                                                 )
@@ -1201,6 +1470,13 @@ fun GameScreen(
                                                     fontSize = 10.sp,
                                                     fontWeight = FontWeight.Black,
                                                     letterSpacing = 1.sp
+                                                )
+                                            } else if (!unlocked) {
+                                                Text(
+                                                    text = "🔒 ${skin.requiredScore} pts",
+                                                    color = Color(0xFFFF9F43).copy(alpha = 0.8f),
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold
                                                 )
                                             }
                                         }
@@ -1222,6 +1498,8 @@ fun GameScreen(
 
                                     OctopusAccessory.values().forEach { accessory ->
                                         val isSelected = selectedAccessory == accessory
+                                        val unlocked = if (accessory.missionReward) missionsCompletedCount > 0
+                                                       else (highestScore ?: 0) >= accessory.requiredScore
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
@@ -1236,7 +1514,7 @@ fun GameScreen(
                                                     color = if (isSelected) Color(0xFF55E6C1) else Color.White.copy(alpha = 0.05f),
                                                     shape = RoundedCornerShape(12.dp)
                                                 )
-                                                .clickable { viewModel.setAccessory(accessory) }
+                                                .clickable(enabled = unlocked) { viewModel.setAccessory(accessory) }
                                                 .padding(horizontal = 14.dp, vertical = 10.dp),
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.SpaceBetween
@@ -1244,7 +1522,7 @@ fun GameScreen(
                                             Row(verticalAlignment = Alignment.CenterVertically) {
                                                 Text(
                                                     text = accessory.displayName,
-                                                    color = Color.White,
+                                                    color = Color.White.copy(alpha = if (unlocked) 1f else 0.4f),
                                                     fontSize = 13.sp,
                                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                                                 )
@@ -1256,6 +1534,14 @@ fun GameScreen(
                                                     fontSize = 10.sp,
                                                     fontWeight = FontWeight.Black,
                                                     letterSpacing = 1.sp
+                                                )
+                                            } else if (!unlocked) {
+                                                Text(
+                                                    text = if (accessory.missionReward) "🔒 Mission du jour"
+                                                           else "🔒 ${accessory.requiredScore} pts",
+                                                    color = Color(0xFFFF9F43).copy(alpha = 0.8f),
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold
                                                 )
                                             }
                                         }
@@ -1587,14 +1873,65 @@ fun GameScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "EXPLORATION TERMINÉE",
-                        color = Color(0xFFFF5252),
+                        text = if (levelCompleted) "NIVEAU $currentLevel RÉUSSI ! 🎉" else "EXPLORATION TERMINÉE",
+                        color = if (levelCompleted) Color(0xFF2ecc71) else Color(0xFFFF5252),
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Black,
                         letterSpacing = 2.sp,
                         textAlign = TextAlign.Center
                     )
-                    
+
+                    // Performance medal for the run (bronze / silver / gold)
+                    val medal = when {
+                        score >= 50 -> Triple("🥇", "MÉDAILLE D'OR", Color(0xFFFFD700))
+                        score >= 25 -> Triple("🥈", "MÉDAILLE D'ARGENT", Color(0xFFC0C0C0))
+                        score >= 10 -> Triple("🥉", "MÉDAILLE DE BRONZE", Color(0xFFCD7F32))
+                        else -> null
+                    }
+                    if (medal != null) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(text = medal.first, fontSize = 26.sp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = medal.second,
+                                color = medal.third,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 1.5.sp
+                            )
+                        }
+                    }
+
+                    if (newRecord) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        val recordTransition = rememberInfiniteTransition(label = "record")
+                        val recordScale by recordTransition.animateFloat(
+                            initialValue = 0.95f,
+                            targetValue = 1.08f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(450, easing = FastOutSlowInEasing),
+                                repeatMode = RepeatMode.Reverse
+                            ),
+                            label = "record_scale"
+                        )
+                        Text(
+                            text = "🏆 NOUVEAU RECORD !",
+                            color = Color(0xFFFFD700),
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 1.sp,
+                            modifier = Modifier.scale(recordScale),
+                            style = TextStyle(
+                                shadow = Shadow(
+                                    color = Color(0xFFFF9F43),
+                                    offset = Offset(0f, 0f),
+                                    blurRadius = 14f
+                                )
+                            )
+                        )
+                    }
+
                     Spacer(modifier = Modifier.height(18.dp))
 
                     // Final score breakdown
@@ -1626,6 +1963,28 @@ fun GameScreen(
 
                     Spacer(modifier = Modifier.height(18.dp))
 
+                    // Daily mission completed during this very run
+                    if (missionJustCompleted) {
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0xFF2ecc71).copy(alpha = 0.15f))
+                                .border(1.dp, Color(0xFF2ecc71).copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(text = "🎯", fontSize = 18.sp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Mission du jour accomplie !",
+                                color = Color(0xFF2ecc71),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                    }
+
                     // The score is saved automatically when the run ends
                     if (highScoreSaved) {
                         Text(
@@ -1644,10 +2003,15 @@ fun GameScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        // Replay
+                        // Replay — or jump to the next level after clearing one
+                        val goNextLevel = levelCompleted && currentLevel < GameViewModel.MAX_LEVEL
                         Button(
-                            onClick = { viewModel.startGame() },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDE1057)),
+                            onClick = {
+                                if (goNextLevel) viewModel.startNextLevel() else viewModel.startGame()
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (goNextLevel) Color(0xFF2ecc71) else Color(0xFFDE1057)
+                            ),
                             shape = RoundedCornerShape(14.dp),
                             modifier = Modifier
                                 .weight(1f)
@@ -1655,14 +2019,14 @@ fun GameScreen(
                                 .testTag("restart_button")
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Refresh,
+                                imageVector = if (goNextLevel) Icons.Default.PlayArrow else Icons.Default.Refresh,
                                 contentDescription = "Retry",
                                 tint = Color.White,
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "REESSAYER",
+                                text = if (goNextLevel) "NIVEAU SUIVANT" else "REESSAYER",
                                 color = Color.White,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Black
@@ -1745,6 +2109,27 @@ fun GameScreen(
                 }
             )
         }
+    }
+}
+
+/** Short haptic buzz played when the octopus crashes. */
+private fun vibrateCrash(context: Context) {
+    try {
+        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val manager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+            manager.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            vibrator.vibrate(VibrationEffect.createOneShot(220L, VibrationEffect.DEFAULT_AMPLITUDE))
+        } else {
+            @Suppress("DEPRECATION")
+            vibrator.vibrate(220L)
+        }
+    } catch (e: Exception) {
+        // Devices without a vibrator simply skip the feedback
     }
 }
 

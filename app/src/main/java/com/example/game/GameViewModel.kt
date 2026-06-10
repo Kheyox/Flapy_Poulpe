@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlin.random.Random
@@ -22,6 +23,25 @@ enum class GameScreenState {
     PLAYING,
     GAME_OVER
 }
+
+enum class GameMode { INFINITE, LEVELS }
+
+/** A daily challenge, picked deterministically from the date. */
+enum class MissionKind { PEARLS, SCORE, NO_SHIELD, COMBO, POWERUPS }
+
+data class DailyMission(
+    val kind: MissionKind,
+    val target: Int,
+    val label: String
+)
+
+val ALL_MISSIONS = listOf(
+    DailyMission(MissionKind.PEARLS, 8, "Collecte 8 perles en une partie"),
+    DailyMission(MissionKind.SCORE, 15, "Atteins 15 points en une partie"),
+    DailyMission(MissionKind.NO_SHIELD, 10, "Atteins 10 points sans ramasser de bouclier"),
+    DailyMission(MissionKind.COMBO, 3, "Réalise un combo de perles x3"),
+    DailyMission(MissionKind.POWERUPS, 2, "Ramasse 2 power-ups en une partie")
+)
 
 data class Octopus(
     val y: Float, // relative game space Y: 0.0f to 1000.0f
@@ -54,6 +74,24 @@ data class PowerUp(
     val y: Float,
     val type: PowerUpType,
     val radius: Float = 24f
+)
+
+/** A jellyfish hazard drifting left while oscillating vertically. */
+data class Jellyfish(
+    val x: Float,
+    val baseY: Float,
+    val y: Float = baseY,
+    val amplitude: Float,
+    val speed: Float,
+    val phase: Float,
+    val radius: Float = 26f
+)
+
+/** A marine current zone that pushes the octopus up or down while inside. */
+data class MarineCurrent(
+    val x: Float,
+    val width: Float = 260f,
+    val force: Float // px/s² applied to vertical velocity; negative pushes up
 )
 
 data class Bubble(
@@ -90,6 +128,9 @@ class GameViewModel(
         const val MAGNET_DURATION = 7f
         const val SLOWMO_DURATION = 5f
         const val SHIELD_INVULN = 1.2f
+
+        // Levels mode: 10 levels, level n is cleared at n*10 points.
+        const val MAX_LEVEL = 10
     }
 
     private val _gameScreenState = MutableStateFlow(GameScreenState.MENU)
@@ -132,6 +173,47 @@ class GameViewModel(
     val invuln: StateFlow<Boolean> = _invuln.asStateFlow()
     private var invulnTime = 0f
 
+    // --- Depth hazards ---
+    private val _jellyfish = MutableStateFlow<List<Jellyfish>>(emptyList())
+    val jellyfish: StateFlow<List<Jellyfish>> = _jellyfish.asStateFlow()
+
+    private val _currents = MutableStateFlow<List<MarineCurrent>>(emptyList())
+    val currents: StateFlow<List<MarineCurrent>> = _currents.asStateFlow()
+
+    // --- Game modes: endless run or fixed-objective levels ---
+    private val _gameMode = MutableStateFlow(GameMode.INFINITE)
+    val gameMode: StateFlow<GameMode> = _gameMode.asStateFlow()
+
+    private val _currentLevel = MutableStateFlow(1)
+    val currentLevel: StateFlow<Int> = _currentLevel.asStateFlow()
+
+    private val _maxUnlockedLevel = MutableStateFlow(1)
+    val maxUnlockedLevel: StateFlow<Int> = _maxUnlockedLevel.asStateFlow()
+
+    private val _levelCompleted = MutableStateFlow(false)
+    val levelCompleted: StateFlow<Boolean> = _levelCompleted.asStateFlow()
+
+    // --- Records & daily mission ---
+    private val _newRecord = MutableStateFlow(false)
+    val newRecord: StateFlow<Boolean> = _newRecord.asStateFlow()
+
+    private val _missionCompletedToday = MutableStateFlow(false)
+    val missionCompletedToday: StateFlow<Boolean> = _missionCompletedToday.asStateFlow()
+
+    private val _missionJustCompleted = MutableStateFlow(false)
+    val missionJustCompleted: StateFlow<Boolean> = _missionJustCompleted.asStateFlow()
+
+    private val _missionsCompletedCount = MutableStateFlow(0)
+    val missionsCompletedCount: StateFlow<Int> = _missionsCompletedCount.asStateFlow()
+
+    val dailyMission: DailyMission = ALL_MISSIONS[dayKey().hashCode().mod(ALL_MISSIONS.size)]
+
+    // Per-run stats feeding the daily mission checks
+    private var runPearls = 0
+    private var runMaxCombo = 0
+    private var runPowerUps = 0
+    private var runShieldPicked = false
+
     private val _bubbles = MutableStateFlow<List<Bubble>>(emptyList())
     val bubbles: StateFlow<List<Bubble>> = _bubbles.asStateFlow()
 
@@ -172,6 +254,11 @@ class GameViewModel(
     private var gameJob: Job? = null
 
     init {
+        // Restore progression (daily mission status, unlocked levels)
+        _missionCompletedToday.value = settings.missionLastCompletedDay == dayKey()
+        _missionsCompletedCount.value = settings.missionsCompletedCount
+        _maxUnlockedLevel.value = settings.maxUnlockedLevel
+
         // Restore persisted cosmetic choices and player name
         settings.skinName?.let { saved ->
             OctopusSkin.values().firstOrNull { it.name == saved }?.let { _selectedSkin.value = it }
@@ -203,14 +290,44 @@ class GameViewModel(
         }
     }
 
+    /** Cosmetics unlock with the best score; the pirate patch is the mission reward. */
+    fun isSkinUnlocked(skin: OctopusSkin): Boolean =
+        (highestScore.value ?: 0) >= skin.requiredScore
+
+    fun isAccessoryUnlocked(accessory: OctopusAccessory): Boolean =
+        if (accessory.missionReward) _missionsCompletedCount.value > 0
+        else (highestScore.value ?: 0) >= accessory.requiredScore
+
     fun setSkin(skin: OctopusSkin) {
+        if (!isSkinUnlocked(skin)) return
         _selectedSkin.value = skin
         settings.skinName = skin.name
     }
 
     fun setAccessory(accessory: OctopusAccessory) {
+        if (!isAccessoryUnlocked(accessory)) return
         _selectedAccessory.value = accessory
         settings.accessoryName = accessory.name
+    }
+
+    fun selectMode(mode: GameMode) {
+        _gameMode.value = mode
+    }
+
+    fun selectLevel(level: Int) {
+        if (level in 1.._maxUnlockedLevel.value) _currentLevel.value = level
+    }
+
+    /** Score to reach to clear the given level in "Niveaux" mode. */
+    fun levelTarget(level: Int = _currentLevel.value): Int = level * 10
+
+    /** From the level-complete screen: jump straight into the next level. */
+    fun startNextLevel() {
+        val next = (_currentLevel.value + 1).coerceAtMost(MAX_LEVEL)
+        if (next <= _maxUnlockedLevel.value) {
+            _currentLevel.value = next
+            startGame()
+        }
     }
 
     fun swim() {
@@ -236,12 +353,21 @@ class GameViewModel(
         _pearls.value = emptyList()
         _powerUps.value = emptyList()
         _particles.value = emptyList()
+        _jellyfish.value = emptyList()
+        _currents.value = emptyList()
         _shieldCharges.value = 0
         _magnetTime.value = 0f
         _slowMoTime.value = 0f
         _combo.value = 0
         invulnTime = 0f
         _invuln.value = false
+        _newRecord.value = false
+        _levelCompleted.value = false
+        _missionJustCompleted.value = false
+        runPearls = 0
+        runMaxCombo = 0
+        runPowerUps = 0
+        runShieldPicked = false
         _gameScreenState.value = GameScreenState.PLAYING
 
         gameJob?.cancel()
@@ -285,6 +411,13 @@ class GameViewModel(
 
         // 1. Apply gravity (buoyancy is weaker than full air gravity)
         velocityY += 900f * dt
+
+        // Marine currents push the octopus vertically while it sits inside the zone
+        for (cur in _currents.value) {
+            if (220f in cur.x..(cur.x + cur.width)) {
+                velocityY += cur.force * dt
+            }
+        }
         _velocityY.value = velocityY
         val nextOctopusY = _octopusY.value + velocityY * dt
         _octopusY.value = nextOctopusY
@@ -351,6 +484,30 @@ class GameViewModel(
         }
         _obstacles.value = nextObstacles
 
+        // 3b. Move jellyfish (vertical oscillation) & detect collisions
+        val nextJellyfish = mutableListOf<Jellyfish>()
+        for (jelly in _jellyfish.value) {
+            val nextX = jelly.x - currentSpeed * dt
+            if (nextX + jelly.radius < 0f) continue
+
+            val nextY = jelly.baseY + kotlin.math.sin(_waveTime.value * jelly.speed + jelly.phase) * jelly.amplitude
+            val dx = 220f - nextX
+            val dy = _octopusY.value - nextY
+            if (dx * dx + dy * dy < (OCTOPUS_RADIUS + jelly.radius) * (OCTOPUS_RADIUS + jelly.radius)) {
+                if (!survivesCrash()) {
+                    endGame()
+                    return
+                }
+            }
+            nextJellyfish.add(jelly.copy(x = nextX, y = nextY))
+        }
+        _jellyfish.value = nextJellyfish
+
+        // 3c. Scroll marine current zones
+        _currents.value = _currents.value
+            .map { it.copy(x = it.x - currentSpeed * dt) }
+            .filter { it.x + it.width > 0f }
+
         // 4. Move pearls and handle collection
         val magnetActive = _magnetTime.value > 0f
         val currentPearls = _pearls.value
@@ -383,6 +540,8 @@ class GameViewModel(
                 // Build the combo and award 5 points times the multiplier
                 _combo.value += 1
                 _score.value += 5 * _combo.value
+                runPearls += 1
+                runMaxCombo = maxOf(runMaxCombo, _combo.value)
                 SoundManager.playCollect() // Play special collect chime!
                 triggerPearlExplosion(nextX, nextY)
                 continue
@@ -412,6 +571,24 @@ class GameViewModel(
 
         // 6. Update active decorative systems (particles & bubbles)
         updateParticlesAndBubbles(dt, currentSpeed)
+
+        // 7. Levels mode: reaching the target score clears the level
+        if (_gameMode.value == GameMode.LEVELS && _score.value >= levelTarget()) {
+            completeLevel()
+        }
+    }
+
+    private fun completeLevel() {
+        _levelCompleted.value = true
+        if (_currentLevel.value >= _maxUnlockedLevel.value && _currentLevel.value < MAX_LEVEL) {
+            _maxUnlockedLevel.value = _currentLevel.value + 1
+            settings.maxUnlockedLevel = _maxUnlockedLevel.value
+        }
+        _gameScreenState.value = GameScreenState.GAME_OVER
+        gameJob?.cancel()
+        SoundManager.playCollect()
+        evaluateDailyMission()
+        saveHighScore()
     }
 
     /** Returns true if the octopus survives a crash (invulnerable or has a shield). */
@@ -429,8 +606,12 @@ class GameViewModel(
     }
 
     private fun activatePowerUp(type: PowerUpType) {
+        runPowerUps += 1
         when (type) {
-            PowerUpType.SHIELD -> _shieldCharges.value = (_shieldCharges.value + 1).coerceAtMost(1)
+            PowerUpType.SHIELD -> {
+                runShieldPicked = true
+                _shieldCharges.value = (_shieldCharges.value + 1).coerceAtMost(1)
+            }
             PowerUpType.MAGNET -> _magnetTime.value = MAGNET_DURATION
             PowerUpType.SLOWMO -> _slowMoTime.value = SLOWMO_DURATION
         }
@@ -485,6 +666,27 @@ class GameViewModel(
                 type = type
             )
         }
+
+        // Depth hazards appear between coral columns as the dive gets deeper.
+        // Jellyfish (score >= 8): oscillating creature halfway to the next column.
+        if (_score.value >= 8 && Random.nextFloat() < 0.30f) {
+            _jellyfish.value = _jellyfish.value + Jellyfish(
+                x = 1100f + 290f,
+                baseY = Random.nextFloat() * 500f + 250f,
+                amplitude = Random.nextFloat() * 100f + 70f,
+                speed = Random.nextFloat() * 1.6f + 1.4f,
+                phase = Random.nextFloat() * 6.28f
+            )
+        }
+
+        // Marine currents (score >= 20): a zone pushing the octopus up or down.
+        if (_score.value >= 20 && Random.nextFloat() < 0.22f) {
+            val goesUp = Random.nextBoolean()
+            _currents.value = _currents.value + MarineCurrent(
+                x = 1100f + 230f,
+                force = if (goesUp) -340f else 340f
+            )
+        }
     }
 
     private fun checkCircleRectCollision(
@@ -504,8 +706,31 @@ class GameViewModel(
         val name = _playerName.value.trim().ifEmpty { "Explorateur" }
 
         viewModelScope.launch {
+            // Compare against the best score BEFORE inserting to detect a new record
+            val previousBest = repository.highestScore.first() ?: 0
+            _newRecord.value = finalScore > previousBest && finalScore > 0
             repository.insertScore(HighScore(playerName = name, score = finalScore))
             _highScoreSaved.value = true
+        }
+    }
+
+    /** Checks the run's stats against today's mission and persists completion. */
+    private fun evaluateDailyMission() {
+        if (_missionCompletedToday.value) return
+        val m = dailyMission
+        val done = when (m.kind) {
+            MissionKind.PEARLS -> runPearls >= m.target
+            MissionKind.SCORE -> _score.value >= m.target
+            MissionKind.NO_SHIELD -> _score.value >= m.target && !runShieldPicked
+            MissionKind.COMBO -> runMaxCombo >= m.target
+            MissionKind.POWERUPS -> runPowerUps >= m.target
+        }
+        if (done) {
+            _missionCompletedToday.value = true
+            _missionJustCompleted.value = true
+            _missionsCompletedCount.value += 1
+            settings.missionLastCompletedDay = dayKey()
+            settings.missionsCompletedCount = _missionsCompletedCount.value
         }
     }
 
@@ -515,6 +740,7 @@ class GameViewModel(
         SoundManager.playCrash() // Play impact crash synthesizer!
 
         // The score is recorded automatically — no manual save button needed.
+        evaluateDailyMission()
         saveHighScore()
 
         // Screen shake of particles on impact
@@ -668,6 +894,12 @@ class GameViewModel(
         _gameScreenState.value = GameScreenState.MENU
         _highScoreSaved.value = false
     }
+}
+
+/** Stable key for "today", used to rotate and gate the daily mission. */
+private fun dayKey(): String {
+    val cal = java.util.Calendar.getInstance()
+    return "${cal.get(java.util.Calendar.YEAR)}-${cal.get(java.util.Calendar.DAY_OF_YEAR)}"
 }
 
 class GameViewModelFactory(
