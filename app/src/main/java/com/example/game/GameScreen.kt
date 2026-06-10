@@ -1626,43 +1626,10 @@ fun GameScreen(
 
                     Spacer(modifier = Modifier.height(18.dp))
 
-                    // Save Score panel
-                    if (!highScoreSaved) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = "Enregistrer le score sous le nom :",
-                                color = Color.White.copy(alpha = 0.8f),
-                                fontSize = 13.sp,
-                                modifier = Modifier.padding(bottom = 6.dp)
-                            )
-                            Text(
-                                text = playerName.ifEmpty { "Explorateur" },
-                                color = Color(0xFF55E6C1),
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(bottom = 12.dp)
-                            )
-                            Button(
-                                onClick = { viewModel.saveHighScore() },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00ADB5)),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth(0.9f)
-                                    .height(44.dp)
-                                    .testTag("save_score_button")
-                            ) {
-                                Text(
-                                    text = "ENREGISTRER LE SCORE",
-                                    color = Color.White,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    letterSpacing = 1.sp
-                                )
-                            }
-                        }
-                    } else {
+                    // The score is saved automatically when the run ends
+                    if (highScoreSaved) {
                         Text(
-                            text = "✓ Score enregistré avec succès !",
+                            text = "✓ Score enregistré pour ${playerName.ifEmpty { "Explorateur" }}",
                             color = Color(0xFF2ecc71),
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,

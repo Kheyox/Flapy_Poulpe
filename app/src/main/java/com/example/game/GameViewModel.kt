@@ -514,6 +514,9 @@ class GameViewModel(
         gameJob?.cancel()
         SoundManager.playCrash() // Play impact crash synthesizer!
 
+        // The score is recorded automatically — no manual save button needed.
+        saveHighScore()
+
         // Screen shake of particles on impact
         triggerCrashExplosion(220f, _octopusY.value)
     }
