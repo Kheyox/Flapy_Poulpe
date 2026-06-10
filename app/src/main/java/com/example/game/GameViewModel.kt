@@ -48,21 +48,27 @@ val ALL_ACHIEVEMENTS = listOf(
 
 enum class GameMode { INFINITE, LEVELS }
 
-/** A daily challenge, picked deterministically from the date. */
-enum class MissionKind { PEARLS, SCORE, NO_SHIELD, COMBO, POWERUPS }
+/**
+ * Jetpack Joyride-style mission: three are always active; completing one pays
+ * pearls and the next mission from the pool takes its place immediately.
+ */
+data class RunMission(val id: String, val label: String, val reward: Int)
 
-data class DailyMission(
-    val kind: MissionKind,
-    val target: Int,
-    val label: String
-)
-
-val ALL_MISSIONS = listOf(
-    DailyMission(MissionKind.PEARLS, 8, "Collecte 8 perles en une partie"),
-    DailyMission(MissionKind.SCORE, 15, "Atteins 15 points en une partie"),
-    DailyMission(MissionKind.NO_SHIELD, 10, "Atteins 10 points sans ramasser de bouclier"),
-    DailyMission(MissionKind.COMBO, 3, "Réalise un combo de perles x3"),
-    DailyMission(MissionKind.POWERUPS, 2, "Ramasse 2 power-ups en une partie")
+val MISSION_POOL = listOf(
+    RunMission("score5", "Atteins 5 points en une partie", 30),
+    RunMission("pearls3", "Collecte 3 perles en une partie", 30),
+    RunMission("powerup1", "Ramasse un power-up", 30),
+    RunMission("combo2", "Réalise un combo de perles x2", 40),
+    RunMission("score10", "Atteins 10 points en une partie", 50),
+    RunMission("pearls8", "Collecte 8 perles en une partie", 60),
+    RunMission("combo3", "Réalise un combo de perles x3", 70),
+    RunMission("score20", "Atteins 20 points en une partie", 80),
+    RunMission("powerup3", "Ramasse 3 power-ups en une partie", 80),
+    RunMission("noshield15", "Atteins 15 points sans ramasser de bouclier", 90),
+    RunMission("pearls15", "Collecte 15 perles en une partie", 110),
+    RunMission("score35", "Atteins 35 points en une partie", 120),
+    RunMission("combo5", "Réalise un combo de perles x5", 150),
+    RunMission("score60", "Atteins 60 points en une partie", 200)
 )
 
 data class Octopus(
@@ -96,24 +102,6 @@ data class PowerUp(
     val y: Float,
     val type: PowerUpType,
     val radius: Float = 24f
-)
-
-/** A jellyfish hazard drifting left while oscillating vertically. */
-data class Jellyfish(
-    val x: Float,
-    val baseY: Float,
-    val y: Float = baseY,
-    val amplitude: Float,
-    val speed: Float,
-    val phase: Float,
-    val radius: Float = 26f
-)
-
-/** A marine current zone that pushes the octopus up or down while inside. */
-data class MarineCurrent(
-    val x: Float,
-    val width: Float = 260f,
-    val force: Float // px/s² applied to vertical velocity; negative pushes up
 )
 
 data class Bubble(
@@ -156,7 +144,6 @@ class GameViewModel(
 
         // Pearl economy: cost of resuming a crashed run, and end-of-run bonuses.
         const val REVIVE_COST = 50
-        const val MISSION_PEARL_BONUS = 100
         const val LEVEL_PEARL_BONUS = 20
     }
 
@@ -200,13 +187,6 @@ class GameViewModel(
     val invuln: StateFlow<Boolean> = _invuln.asStateFlow()
     private var invulnTime = 0f
 
-    // --- Depth hazards ---
-    private val _jellyfish = MutableStateFlow<List<Jellyfish>>(emptyList())
-    val jellyfish: StateFlow<List<Jellyfish>> = _jellyfish.asStateFlow()
-
-    private val _currents = MutableStateFlow<List<MarineCurrent>>(emptyList())
-    val currents: StateFlow<List<MarineCurrent>> = _currents.asStateFlow()
-
     // --- Game modes: endless run or fixed-objective levels ---
     private val _gameMode = MutableStateFlow(GameMode.INFINITE)
     val gameMode: StateFlow<GameMode> = _gameMode.asStateFlow()
@@ -220,20 +200,20 @@ class GameViewModel(
     private val _levelCompleted = MutableStateFlow(false)
     val levelCompleted: StateFlow<Boolean> = _levelCompleted.asStateFlow()
 
-    // --- Records & daily mission ---
+    // --- Records & missions ---
     private val _newRecord = MutableStateFlow(false)
     val newRecord: StateFlow<Boolean> = _newRecord.asStateFlow()
 
-    private val _missionCompletedToday = MutableStateFlow(false)
-    val missionCompletedToday: StateFlow<Boolean> = _missionCompletedToday.asStateFlow()
+    // The three currently active missions (Jetpack Joyride style)
+    private val _activeMissions = MutableStateFlow<List<RunMission>>(emptyList())
+    val activeMissions: StateFlow<List<RunMission>> = _activeMissions.asStateFlow()
 
-    private val _missionJustCompleted = MutableStateFlow(false)
-    val missionJustCompleted: StateFlow<Boolean> = _missionJustCompleted.asStateFlow()
+    // Missions completed during the current run, shown on the game-over screen
+    private val _missionsJustCompleted = MutableStateFlow<List<RunMission>>(emptyList())
+    val missionsJustCompleted: StateFlow<List<RunMission>> = _missionsJustCompleted.asStateFlow()
 
     private val _missionsCompletedCount = MutableStateFlow(0)
     val missionsCompletedCount: StateFlow<Int> = _missionsCompletedCount.asStateFlow()
-
-    val dailyMission: DailyMission = ALL_MISSIONS[dayKey().hashCode().mod(ALL_MISSIONS.size)]
 
     // --- Pearl economy ---
     private val _pearlWallet = MutableStateFlow(0)
@@ -308,9 +288,18 @@ class GameViewModel(
     private var gameJob: Job? = null
 
     init {
-        // Restore progression (daily mission status, unlocked levels, pearl economy)
-        _missionCompletedToday.value = settings.missionLastCompletedDay == dayKey()
+        // Restore progression (missions, unlocked levels, pearl economy)
         _missionsCompletedCount.value = settings.missionsCompletedCount
+        val savedMissionIds = settings.activeMissionIds
+            .split(",")
+            .mapNotNull { id -> MISSION_POOL.find { it.id == id } }
+        if (savedMissionIds.size == 3) {
+            _activeMissions.value = savedMissionIds
+        } else {
+            _activeMissions.value = MISSION_POOL.take(3)
+            settings.activeMissionIds = _activeMissions.value.joinToString(",") { it.id }
+            settings.missionPoolCursor = 3
+        }
         _maxUnlockedLevel.value = settings.maxUnlockedLevel
         _pearlWallet.value = settings.pearlBalance
         _purchasedCosmetics.value = settings.purchasedCosmetics
@@ -452,8 +441,6 @@ class GameViewModel(
         _pearls.value = emptyList()
         _powerUps.value = emptyList()
         _particles.value = emptyList()
-        _jellyfish.value = emptyList()
-        _currents.value = emptyList()
         _shieldCharges.value = 0
         _magnetTime.value = 0f
         _slowMoTime.value = 0f
@@ -462,7 +449,7 @@ class GameViewModel(
         _invuln.value = false
         _newRecord.value = false
         _levelCompleted.value = false
-        _missionJustCompleted.value = false
+        _missionsJustCompleted.value = emptyList()
         runPearls = 0
         runMaxCombo = 0
         runPowerUps = 0
@@ -496,10 +483,9 @@ class GameViewModel(
                 // 2. Physics logic and checks
                 updateGame(cappedDt)
 
-                // 3. Obstacle Spawning frequency scales with score (faster spawn limits max wait time)
+                // 3. Obstacles arrive on a steady, predictable rhythm (Flappy style)
                 obstacleSpawnAccumulator += cappedDt
-                val currentInterval = (2.8f - (_score.value * 0.012f)).coerceAtLeast(1.7f)
-                if (obstacleSpawnAccumulator >= currentInterval) {
+                if (obstacleSpawnAccumulator >= 1.9f) {
                     spawnObstacle()
                     obstacleSpawnAccumulator = 0f
                 }
@@ -523,8 +509,6 @@ class GameViewModel(
         _reviveAvailable.value = false
 
         _obstacles.value = emptyList()
-        _jellyfish.value = emptyList()
-        _currents.value = emptyList()
         _octopusY.value = 500f
         velocityY = -100f
         _velocityY.value = velocityY
@@ -547,13 +531,6 @@ class GameViewModel(
 
         // 1. Apply gravity (buoyancy is weaker than full air gravity)
         velocityY += 900f * dt
-
-        // Marine currents push the octopus vertically while it sits inside the zone
-        for (cur in _currents.value) {
-            if (220f in cur.x..(cur.x + cur.width)) {
-                velocityY += cur.force * dt
-            }
-        }
         _velocityY.value = velocityY
         val nextOctopusY = _octopusY.value + velocityY * dt
         _octopusY.value = nextOctopusY
@@ -571,10 +548,10 @@ class GameViewModel(
             }
         }
 
-        // 3. Move obstacles & detect collisions
-        val speedMultiplier = (1.0f + (_score.value * 0.012f)).coerceAtMost(1.45f)
-        // Slow-motion power-up reduces scroll speed while active
-        val currentSpeed = 205f * speedMultiplier * (if (_slowMoTime.value > 0f) 0.55f else 1f)
+        // 3. Move obstacles & detect collisions.
+        // Flappy Bird DNA: the scroll speed is CONSTANT — mastery comes from
+        // rhythm and consistency, not from surviving an accelerating chaos.
+        val currentSpeed = 210f * (if (_slowMoTime.value > 0f) 0.55f else 1f)
 
         val currentObstacles = _obstacles.value
         val nextObstacles = mutableListOf<CoralObstacle>()
@@ -619,30 +596,6 @@ class GameViewModel(
             nextObstacles.add(obs.copy(x = nextX, gapY = currentGapY, passed = isPassed))
         }
         _obstacles.value = nextObstacles
-
-        // 3b. Move jellyfish (vertical oscillation) & detect collisions
-        val nextJellyfish = mutableListOf<Jellyfish>()
-        for (jelly in _jellyfish.value) {
-            val nextX = jelly.x - currentSpeed * dt
-            if (nextX + jelly.radius < 0f) continue
-
-            val nextY = jelly.baseY + kotlin.math.sin(_waveTime.value * jelly.speed + jelly.phase) * jelly.amplitude
-            val dx = 220f - nextX
-            val dy = _octopusY.value - nextY
-            if (dx * dx + dy * dy < (OCTOPUS_RADIUS + jelly.radius) * (OCTOPUS_RADIUS + jelly.radius)) {
-                if (!survivesCrash()) {
-                    endGame()
-                    return
-                }
-            }
-            nextJellyfish.add(jelly.copy(x = nextX, y = nextY))
-        }
-        _jellyfish.value = nextJellyfish
-
-        // 3c. Scroll marine current zones
-        _currents.value = _currents.value
-            .map { it.copy(x = it.x - currentSpeed * dt) }
-            .filter { it.x + it.width > 0f }
 
         // 4. Move pearls and handle collection
         val magnetActive = _magnetTime.value > 0f
@@ -753,30 +706,17 @@ class GameViewModel(
     }
 
     private fun spawnObstacle() {
-        val gapY = Random.nextFloat() * 480f + 260f // center centered between 260 and 740
-        val defaultGapHeight = 310f
-        // Reduce gap size slightly over time for difficulty tuning
-        val currentGapHeight = (defaultGapHeight - (_score.value * 1.5f)).coerceAtLeast(235f)
-
-        // Escalate difficulty: introduce moving/bobbing corals as the score increases!
-        val bobRange = if (_score.value >= 10) {
-            (Random.nextFloat() * (_score.value * 1.8f)).coerceAtMost(60f) // Up to 60px bobbing oscillation
-        } else {
-            0f
-        }
-        val bobSpeed = if (bobRange > 0f) {
-            Random.nextFloat() * 1.1f + 0.6f
-        } else {
-            0f
-        }
+        // Pure Flappy: every coral pair has the SAME fixed gap, only its height
+        // varies. Fair, learnable, and brutal in the best possible way.
+        val gapY = Random.nextFloat() * 480f + 260f // center between 260 and 740
 
         val newObstacle = CoralObstacle(
             x = 1100f,
             gapY = gapY,
-            gapHeight = currentGapHeight,
+            gapHeight = 280f,
             width = 115f,
-            bobSpeed = bobSpeed,
-            bobRange = bobRange,
+            bobSpeed = 0f,
+            bobRange = 0f,
             initialGapY = gapY
         )
         _obstacles.value = _obstacles.value + newObstacle
@@ -799,27 +739,6 @@ class GameViewModel(
                 x = 1100f + 57.5f,
                 y = puY,
                 type = type
-            )
-        }
-
-        // Depth hazards appear between coral columns as the dive gets deeper.
-        // Jellyfish (score >= 8): oscillating creature halfway to the next column.
-        if (_score.value >= 8 && Random.nextFloat() < 0.30f) {
-            _jellyfish.value = _jellyfish.value + Jellyfish(
-                x = 1100f + 290f,
-                baseY = Random.nextFloat() * 500f + 250f,
-                amplitude = Random.nextFloat() * 100f + 70f,
-                speed = Random.nextFloat() * 1.6f + 1.4f,
-                phase = Random.nextFloat() * 6.28f
-            )
-        }
-
-        // Marine currents (score >= 20): a zone pushing the octopus up or down.
-        if (_score.value >= 20 && Random.nextFloat() < 0.22f) {
-            val goesUp = Random.nextBoolean()
-            _currents.value = _currents.value + MarineCurrent(
-                x = 1100f + 230f,
-                force = if (goesUp) -340f else 340f
             )
         }
     }
@@ -861,9 +780,9 @@ class GameViewModel(
             _score.value >= 10 -> 10
             else -> 0
         }
-        val missionBonus = if (_missionJustCompleted.value) MISSION_PEARL_BONUS else 0
+        // Mission rewards are paid directly by evaluateMissions()
         val levelBonus = if (_levelCompleted.value) LEVEL_PEARL_BONUS else 0
-        val earned = runPearls + medalBonus + missionBonus + levelBonus
+        val earned = runPearls + medalBonus + levelBonus
 
         val delta = earned - pearlsBankedThisRun
         if (delta > 0) {
@@ -874,24 +793,56 @@ class GameViewModel(
         _runPearlsEarned.value = earned
     }
 
-    /** Checks the run's stats against today's mission and persists completion. */
-    private fun evaluateDailyMission() {
-        if (_missionCompletedToday.value) return
-        val m = dailyMission
-        val done = when (m.kind) {
-            MissionKind.PEARLS -> runPearls >= m.target
-            MissionKind.SCORE -> _score.value >= m.target
-            MissionKind.NO_SHIELD -> _score.value >= m.target && !runShieldPicked
-            MissionKind.COMBO -> runMaxCombo >= m.target
-            MissionKind.POWERUPS -> runPowerUps >= m.target
+    private fun missionSatisfied(m: RunMission): Boolean = when (m.id) {
+        "score5" -> _score.value >= 5
+        "pearls3" -> runPearls >= 3
+        "powerup1" -> runPowerUps >= 1
+        "combo2" -> runMaxCombo >= 2
+        "score10" -> _score.value >= 10
+        "pearls8" -> runPearls >= 8
+        "combo3" -> runMaxCombo >= 3
+        "score20" -> _score.value >= 20
+        "powerup3" -> runPowerUps >= 3
+        "noshield15" -> _score.value >= 15 && !runShieldPicked
+        "pearls15" -> runPearls >= 15
+        "score35" -> _score.value >= 35
+        "combo5" -> runMaxCombo >= 5
+        "score60" -> _score.value >= 60
+        else -> false
+    }
+
+    /**
+     * Pays out every completed active mission and immediately replaces it with
+     * the next mission from the pool (cycling, no duplicate among the three).
+     */
+    private fun evaluateMissions() {
+        val done = _activeMissions.value.filter { missionSatisfied(it) }
+        if (done.isEmpty()) return
+
+        var cursor = settings.missionPoolCursor
+        val remaining = _activeMissions.value.toMutableList()
+        done.forEach { completed ->
+            remaining.remove(completed)
+            var attempts = 0
+            while (attempts < MISSION_POOL.size) {
+                val candidate = MISSION_POOL[cursor % MISSION_POOL.size]
+                cursor++
+                attempts++
+                if (remaining.none { it.id == candidate.id }) {
+                    remaining.add(candidate)
+                    break
+                }
+            }
         }
-        if (done) {
-            _missionCompletedToday.value = true
-            _missionJustCompleted.value = true
-            _missionsCompletedCount.value += 1
-            settings.missionLastCompletedDay = dayKey()
-            settings.missionsCompletedCount = _missionsCompletedCount.value
-        }
+        settings.missionPoolCursor = cursor
+        _activeMissions.value = remaining
+        settings.activeMissionIds = remaining.joinToString(",") { it.id }
+
+        _pearlWallet.value += done.sumOf { it.reward }
+        settings.pearlBalance = _pearlWallet.value
+        _missionsJustCompleted.value = _missionsJustCompleted.value + done
+        _missionsCompletedCount.value += done.size
+        settings.missionsCompletedCount = _missionsCompletedCount.value
     }
 
     private fun endGame() {
@@ -906,7 +857,7 @@ class GameViewModel(
 
     /** Shared end-of-run pipeline: missions, lifetime stats, trophies, pearls, score. */
     private fun finishRun() {
-        evaluateDailyMission()
+        evaluateMissions()
         updateLifetimeStats()
         evaluateAchievements()
         bankRunPearls()
@@ -1121,12 +1072,6 @@ class GameViewModel(
         _gameScreenState.value = GameScreenState.MENU
         _highScoreSaved.value = false
     }
-}
-
-/** Stable key for "today", used to rotate and gate the daily mission. */
-private fun dayKey(): String {
-    val cal = java.util.Calendar.getInstance()
-    return "${cal.get(java.util.Calendar.YEAR)}-${cal.get(java.util.Calendar.DAY_OF_YEAR)}"
 }
 
 class GameViewModelFactory(

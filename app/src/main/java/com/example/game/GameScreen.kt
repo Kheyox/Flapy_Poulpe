@@ -104,15 +104,13 @@ fun GameScreen(
     val highestScore by viewModel.highestScore.collectAsStateWithLifecycle()
     val playerName by viewModel.playerName.collectAsStateWithLifecycle()
     val highScoreSaved by viewModel.highScoreSaved.collectAsStateWithLifecycle()
-    val jellyfish by viewModel.jellyfish.collectAsStateWithLifecycle()
-    val currents by viewModel.currents.collectAsStateWithLifecycle()
     val gameMode by viewModel.gameMode.collectAsStateWithLifecycle()
     val currentLevel by viewModel.currentLevel.collectAsStateWithLifecycle()
     val maxUnlockedLevel by viewModel.maxUnlockedLevel.collectAsStateWithLifecycle()
     val levelCompleted by viewModel.levelCompleted.collectAsStateWithLifecycle()
     val newRecord by viewModel.newRecord.collectAsStateWithLifecycle()
-    val missionCompletedToday by viewModel.missionCompletedToday.collectAsStateWithLifecycle()
-    val missionJustCompleted by viewModel.missionJustCompleted.collectAsStateWithLifecycle()
+    val activeMissions by viewModel.activeMissions.collectAsStateWithLifecycle()
+    val missionsJustCompleted by viewModel.missionsJustCompleted.collectAsStateWithLifecycle()
     val missionsCompletedCount by viewModel.missionsCompletedCount.collectAsStateWithLifecycle()
     val pearlWallet by viewModel.pearlWallet.collectAsStateWithLifecycle()
     val purchasedCosmetics by viewModel.purchasedCosmetics.collectAsStateWithLifecycle()
@@ -340,38 +338,6 @@ fun GameScreen(
                     )
                 }
 
-                // C2. Marine current zones (translucent band + direction chevrons)
-                currents.forEach { current ->
-                    val goesUp = current.force < 0f
-                    val bandColor = if (goesUp) Color(0xFF55E6C1) else Color(0xFF1B9CFC)
-                    drawRect(
-                        brush = Brush.horizontalGradient(
-                            colors = listOf(
-                                bandColor.copy(alpha = 0f),
-                                bandColor.copy(alpha = 0.13f),
-                                bandColor.copy(alpha = 0f)
-                            ),
-                            startX = current.x,
-                            endX = current.x + current.width
-                        ),
-                        topLeft = Offset(current.x, 0f),
-                        size = Size(current.width, 1000f)
-                    )
-                    // Animated chevrons showing the push direction
-                    val chevronX = current.x + current.width / 2f
-                    val drift = (waveTime * 160f) % 250f
-                    for (i in 0..4) {
-                        val baseY = if (goesUp) 1000f - (i * 250f + drift) else (i * 250f + drift)
-                        val tip = if (goesUp) baseY - 26f else baseY + 26f
-                        val chevron = Path().apply {
-                            moveTo(chevronX - 22f, baseY)
-                            lineTo(chevronX, tip)
-                            lineTo(chevronX + 22f, baseY)
-                        }
-                        drawPath(chevron, bandColor.copy(alpha = 0.4f), style = Stroke(width = 5f, cap = StrokeCap.Round))
-                    }
-                }
-
                 // D. Obstacle Coral Columns
                 obstacles.forEach { obstacle ->
                     // Color picked from the SPAWN position (initialGapY): bobbing corals
@@ -435,50 +401,6 @@ fun GameScreen(
                         cornerRadius = CornerRadius(6f, 6f),
                         style = Stroke(width = 3.5f)
                     )
-                }
-
-                // D2. Jellyfish hazards (translucent dome + trailing tentacles)
-                jellyfish.forEach { jelly ->
-                    val jCenter = Offset(jelly.x, jelly.y)
-                    val pulse = 1f + sin(waveTime * 5f + jelly.phase).toFloat() * 0.08f
-                    val domeR = jelly.radius * pulse
-
-                    // Soft glow
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            colors = listOf(Color(0x66FF9FF3), Color(0x00FF9FF3)),
-                            center = jCenter,
-                            radius = domeR * 1.9f
-                        ),
-                        radius = domeR * 1.9f,
-                        center = jCenter
-                    )
-                    // Dome (upper half)
-                    drawArc(
-                        brush = Brush.verticalGradient(
-                            colors = listOf(Color(0xFFFF9FF3), Color(0xFFCD84F1)),
-                            startY = jelly.y - domeR,
-                            endY = jelly.y + domeR * 0.4f
-                        ),
-                        startAngle = 180f,
-                        sweepAngle = 180f,
-                        useCenter = true,
-                        topLeft = Offset(jelly.x - domeR, jelly.y - domeR),
-                        size = Size(domeR * 2f, domeR * 2f)
-                    )
-                    // Wavy tentacles below the dome
-                    for (t in -2..2) {
-                        val tx = jelly.x + t * (domeR * 0.4f)
-                        val sway = sin(waveTime * 7f + jelly.phase + t).toFloat() * 7f
-                        val tentacle = Path().apply {
-                            moveTo(tx, jelly.y)
-                            quadraticTo(tx + sway, jelly.y + 22f, tx - sway * 0.6f, jelly.y + 42f)
-                        }
-                        drawPath(tentacle, Color(0xFFCD84F1).copy(alpha = 0.75f), style = Stroke(width = 3.5f, cap = StrokeCap.Round))
-                    }
-                    // Sleepy eyes
-                    drawCircle(Color(0xFF2C3E50), radius = 2.5f, center = Offset(jelly.x - 8f, jelly.y - 8f))
-                    drawCircle(Color(0xFF2C3E50), radius = 2.5f, center = Offset(jelly.x + 8f, jelly.y - 8f))
                 }
 
                 // E. Collectible Golden Pearls
@@ -1403,52 +1325,56 @@ fun GameScreen(
                                         )
                                     }
 
-                                    // DAILY MISSION CARD
-                                    Row(
+                                    // ACTIVE MISSIONS — three at once, replaced as soon as completed
+                                    Column(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .padding(bottom = 14.dp)
                                             .clip(RoundedCornerShape(12.dp))
-                                            .background(
-                                                if (missionCompletedToday) Color(0xFF2ecc71).copy(alpha = 0.12f)
-                                                else Color(0xFFFF9F43).copy(alpha = 0.12f)
-                                            )
-                                            .border(
-                                                1.dp,
-                                                if (missionCompletedToday) Color(0xFF2ecc71).copy(alpha = 0.4f)
-                                                else Color(0xFFFF9F43).copy(alpha = 0.4f),
-                                                RoundedCornerShape(12.dp)
-                                            )
-                                            .padding(horizontal = 12.dp, vertical = 9.dp),
-                                        verticalAlignment = Alignment.CenterVertically
+                                            .background(Color(0xFFFF9F43).copy(alpha = 0.1f))
+                                            .border(1.dp, Color(0xFFFF9F43).copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+                                            .padding(horizontal = 12.dp, vertical = 9.dp)
                                     ) {
-                                        Text(
-                                            text = if (missionCompletedToday) "✅" else "🎯",
-                                            fontSize = 18.sp
-                                        )
-                                        Spacer(modifier = Modifier.width(10.dp))
-                                        Column {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(text = "🎯", fontSize = 14.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
                                             Text(
-                                                text = "MISSION DU JOUR",
-                                                color = if (missionCompletedToday) Color(0xFF2ecc71) else Color(0xFFFF9F43),
-                                                fontSize = 9.sp,
+                                                text = "MISSIONS",
+                                                color = Color(0xFFFF9F43),
+                                                fontSize = 10.sp,
                                                 fontWeight = FontWeight.Black,
                                                 letterSpacing = 1.sp
                                             )
-                                            Text(
-                                                text = if (missionCompletedToday) "Accomplie ! Revenez demain 🐙"
-                                                       else viewModel.dailyMission.label,
-                                                color = Color.White.copy(alpha = 0.85f),
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Medium
-                                            )
-                                            if (!missionCompletedToday) {
+                                            if (missionsCompletedCount == 0) {
+                                                Spacer(modifier = Modifier.width(8.dp))
                                                 Text(
-                                                    text = if (missionsCompletedCount == 0)
-                                                        "Récompense : 100 🦪 + Cache-œil de Pirate 🏴‍☠️"
-                                                    else "Récompense : 100 🦪",
-                                                    color = Color.White.copy(alpha = 0.5f),
-                                                    fontSize = 9.sp
+                                                    text = "1ʳᵉ mission = Cache-œil 🏴‍☠️",
+                                                    color = Color.White.copy(alpha = 0.45f),
+                                                    fontSize = 8.sp
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(5.dp))
+                                        activeMissions.forEach { mission ->
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(vertical = 2.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Text(
+                                                    text = "•  ${mission.label}",
+                                                    color = Color.White.copy(alpha = 0.85f),
+                                                    fontSize = 10.5.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                                Text(
+                                                    text = "+${mission.reward} 🦪",
+                                                    color = Color(0xFFFFD700).copy(alpha = 0.85f),
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold
                                                 )
                                             }
                                         }
@@ -1904,7 +1830,7 @@ fun GameScreen(
                                                 }
                                             } else if (!unlocked) {
                                                 Text(
-                                                    text = if (accessory.missionReward) "🔒 Mission du jour"
+                                                    text = if (accessory.missionReward) "🔒 1ʳᵉ mission"
                                                            else "🔒 ${accessory.requiredScore} pts",
                                                     color = Color(0xFFFF9F43).copy(alpha = 0.8f),
                                                     fontSize = 10.sp,
@@ -2408,6 +2334,14 @@ fun GameScreen(
                                 fontWeight = FontWeight.Black,
                                 modifier = Modifier.testTag("final_score")
                             )
+                            // Competitive anchor: always confront the player with their record
+                            Text(
+                                text = "RECORD : ${maxOf(highestScore ?: 0, score)}",
+                                color = Color.White.copy(alpha = 0.55f),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.sp
+                            )
                         }
                     }
 
@@ -2428,26 +2362,26 @@ fun GameScreen(
                         Spacer(modifier = Modifier.height(10.dp))
                     }
 
-                    // Daily mission completed during this very run
-                    if (missionJustCompleted) {
+                    // Missions completed during this very run
+                    missionsJustCompleted.forEach { mission ->
                         Row(
                             modifier = Modifier
+                                .padding(bottom = 6.dp)
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(Color(0xFF2ecc71).copy(alpha = 0.15f))
                                 .border(1.dp, Color(0xFF2ecc71).copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                                .padding(horizontal = 14.dp, vertical = 7.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(text = "🎯", fontSize = 18.sp)
+                            Text(text = "🎯", fontSize = 15.sp)
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Mission du jour accomplie !",
+                                text = "${mission.label}  +${mission.reward} 🦪",
                                 color = Color(0xFF2ecc71),
-                                fontSize = 13.sp,
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }
-                        Spacer(modifier = Modifier.height(10.dp))
                     }
 
                     // Trophies unlocked during this run

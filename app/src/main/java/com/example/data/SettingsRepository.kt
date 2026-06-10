@@ -22,12 +22,17 @@ class SettingsRepository(context: Context) {
         get() = prefs.getString(KEY_NAME, null)
         set(value) { prefs.edit().putString(KEY_NAME, value).apply() }
 
-    /** Day ("yyyy-DDD") the daily mission was last completed, or null. */
-    var missionLastCompletedDay: String?
-        get() = prefs.getString(KEY_MISSION_DAY, null)
-        set(value) { prefs.edit().putString(KEY_MISSION_DAY, value).apply() }
+    /** Comma-joined ids of the three currently active missions. */
+    var activeMissionIds: String
+        get() = prefs.getString(KEY_ACTIVE_MISSIONS, "") ?: ""
+        set(value) { prefs.edit().putString(KEY_ACTIVE_MISSIONS, value).apply() }
 
-    /** Total number of daily missions ever completed (drives mission rewards). */
+    /** Index of the next mission to draw from the pool when one completes. */
+    var missionPoolCursor: Int
+        get() = prefs.getInt(KEY_MISSION_CURSOR, 3)
+        set(value) { prefs.edit().putInt(KEY_MISSION_CURSOR, value).apply() }
+
+    /** Total number of missions ever completed (drives mission rewards). */
     var missionsCompletedCount: Int
         get() = prefs.getInt(KEY_MISSION_COUNT, 0)
         set(value) { prefs.edit().putInt(KEY_MISSION_COUNT, value).apply() }
@@ -65,7 +70,8 @@ class SettingsRepository(context: Context) {
         const val KEY_SKIN = "skin"
         const val KEY_ACCESSORY = "accessory"
         const val KEY_NAME = "player_name"
-        const val KEY_MISSION_DAY = "mission_last_day"
+        const val KEY_ACTIVE_MISSIONS = "active_missions"
+        const val KEY_MISSION_CURSOR = "mission_pool_cursor"
         const val KEY_MISSION_COUNT = "missions_completed"
         const val KEY_MAX_LEVEL = "max_unlocked_level"
         const val KEY_PEARLS = "pearl_balance"
