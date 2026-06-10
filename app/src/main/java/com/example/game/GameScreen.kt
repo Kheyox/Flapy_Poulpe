@@ -1406,6 +1406,62 @@ fun GameScreen(
                                         }
                                     }
 
+                                    // Manual update check, visible without digging into settings.
+                                    // Re-checking also re-arms the update popup if it was dismissed.
+                                    val checkBusy = updateState is UpdateState.Checking || updateState is UpdateState.Downloading
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(bottom = 14.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(Color.White.copy(alpha = 0.05f))
+                                            .clickable(enabled = !checkBusy) {
+                                                dismissedUpdateTag = null
+                                                updateManager.checkUpdates()
+                                            }
+                                            .padding(horizontal = 12.dp, vertical = 9.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        if (updateState is UpdateState.Checking) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(15.dp),
+                                                strokeWidth = 2.dp,
+                                                color = Color(0xFF1B9CFC)
+                                            )
+                                        } else {
+                                            Icon(
+                                                imageVector = Icons.Default.Refresh,
+                                                contentDescription = "Vérifier les mises à jour",
+                                                tint = Color(0xFF1B9CFC),
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Column {
+                                            Text(
+                                                text = "Vérifier les mises à jour",
+                                                color = Color.White.copy(alpha = 0.85f),
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                            val (statusText, statusColor) = when (val s = updateState) {
+                                                is UpdateState.Checking -> "Vérification sur GitHub..." to Color.White.copy(alpha = 0.5f)
+                                                is UpdateState.NoUpdate -> "✓ À jour (v${updateManager.currentVersionName})" to Color(0xFF2ecc71)
+                                                is UpdateState.UpdateAvailable -> "Nouvelle version v${s.tagName} disponible !" to Color(0xFFFF9F43)
+                                                is UpdateState.Downloading -> "Téléchargement ${s.progress}%" to Color(0xFF55E6C1)
+                                                is UpdateState.ReadyToInstall -> "Installation..." to Color(0xFF55E6C1)
+                                                is UpdateState.Error -> s.message to Color(0xFFFF7675)
+                                                else -> "Version installée : v${updateManager.currentVersionName}" to Color.White.copy(alpha = 0.4f)
+                                            }
+                                            Text(
+                                                text = statusText,
+                                                color = statusColor,
+                                                fontSize = 9.sp,
+                                                lineHeight = 12.sp
+                                            )
+                                        }
+                                    }
+
                                     // Lancer l'exploration Play Button
                                     Button(
                                         onClick = { viewModel.startGame() },
@@ -2031,7 +2087,7 @@ fun GameScreen(
                         Triple("home", Icons.Default.Home, "Accueil"),
                         Triple("ranks", Icons.Default.Star, "Rangs"),
                         Triple("skins", Icons.Default.Face, "Skins"),
-                        Triple("audio", Icons.Default.Settings, "Audio")
+                        Triple("audio", Icons.Default.Settings, "Réglages")
                     )
 
                     tabs.forEach { (tabId, icon, label) ->

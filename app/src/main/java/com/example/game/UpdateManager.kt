@@ -76,7 +76,7 @@ class UpdateManager(private val context: Context) {
                 client.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) {
                         val errMsg = if (response.code == 404) {
-                            "Aucun 'Release' publié sur GitHub (404). Créez une Release publique avec votre fichier APK sur GitHub pour activer les mises à jour !"
+                            "Dépôt GitHub inaccessible (404). Si le dépôt $GITHUB_OWNER/$GITHUB_REPO est privé, rendez-le public pour activer les mises à jour automatiques."
                         } else {
                             "Impossible de se connecter à GitHub (${response.code})"
                         }
