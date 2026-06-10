@@ -63,10 +63,15 @@ enum class OctopusSkin(val skinName: String, val primaryColor: Color, val accent
     MINT("Menthe Néon", Color(0xFF55E6C1), Color(0xFF1B9CFC), 15),
     GOLD("Éclat d'Or", Color(0xFFFFD700), Color(0xFFFF9F43), 40),
     COSMIC("Abysses Violets", Color(0xFFA29BFE), Color(0xFF6C5CE7), 80),
+    CORAL("Récif Corallien", Color(0xFFFF7F50), Color(0xFFC44569), 25),
+    GLACIER("Glace Polaire", Color(0xFFC7ECEE), Color(0xFF7ED6DF), 60),
+    ABYSS("Ombre des Abysses", Color(0xFF485460), Color(0xFF1E272E), 120),
     ELECTRIC("Bleu Électrique", Color(0xFF00A8FF), Color(0xFF0652DD), 0, price = 150),
     LAVA("Lave Ardente", Color(0xFFFF6348), Color(0xFFB71540), 0, price = 300),
     EMERALD("Émeraude Royale", Color(0xFF00B894), Color(0xFF006266), 0, price = 500),
-    SAKURA("Fleur de Sakura", Color(0xFFFDA7DF), Color(0xFFD980FA), 0, price = 800)
+    BIOLUM("Bioluminescent", Color(0xFF7EFFF5), Color(0xFF18DCFF), 0, price = 650),
+    SAKURA("Fleur de Sakura", Color(0xFFFDA7DF), Color(0xFFD980FA), 0, price = 800),
+    ROYAL("Pourpre Royal", Color(0xFF833471), Color(0xFF6F1E51), 0, price = 1000)
 }
 
 // The pirate patch is special: it's the daily-mission reward, not a score unlock.
@@ -1134,7 +1139,7 @@ fun GameScreen(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(24.dp))
-                                        .background(Color.Black.copy(alpha = 0.45f))
+                                        .background(Color.Black.copy(alpha = 0.5f))
                                         .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(24.dp))
                                         .verticalScroll(rememberScrollState())
                                         .padding(16.dp),
@@ -1444,31 +1449,27 @@ fun GameScreen(
                                         .fillMaxWidth()
                                         .fillMaxHeight(0.85f)
                                         .clip(RoundedCornerShape(24.dp))
-                                        .background(Color.Black.copy(alpha = 0.45f))
+                                        .background(Color.Black.copy(alpha = 0.5f))
                                         .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(24.dp))
                                         .verticalScroll(rememberScrollState())
                                         .padding(16.dp)
                                 ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Star,
-                                            contentDescription = "Trophy Score",
-                                            tint = Color(0xFFFFD700),
-                                            modifier = Modifier.size(22.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = "TOP EXPLORATEURS",
-                                            color = Color.White,
-                                            fontSize = 16.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            letterSpacing = 2.sp
-                                        )
-                                    }
+                                    Text(
+                                        text = "🏆 CLASSEMENT",
+                                        color = Color(0xFF55E6C1),
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Black,
+                                        letterSpacing = 1.5.sp,
+                                        modifier = Modifier.align(Alignment.CenterHorizontally)
+                                    )
+                                    Text(
+                                        text = "Meilleurs scores enregistrés sur cet appareil",
+                                        color = Color.White.copy(alpha = 0.45f),
+                                        fontSize = 10.sp,
+                                        modifier = Modifier
+                                            .align(Alignment.CenterHorizontally)
+                                            .padding(bottom = 12.dp)
+                                    )
 
                                     if (topScores.isEmpty()) {
                                         Box(
@@ -1550,21 +1551,22 @@ fun GameScreen(
                                         modifier = Modifier.padding(vertical = 14.dp),
                                         color = Color.White.copy(alpha = 0.15f)
                                     )
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.Center
-                                    ) {
-                                        Text(text = "🏆", fontSize = 17.sp)
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = "SUCCÈS  (${unlockedAchievements.size}/${ALL_ACHIEVEMENTS.size})",
-                                            color = Color.White,
-                                            fontSize = 15.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            letterSpacing = 2.sp
-                                        )
-                                    }
+                                    Text(
+                                        text = "🏅 SUCCÈS",
+                                        color = Color(0xFF55E6C1),
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Black,
+                                        letterSpacing = 1.5.sp,
+                                        modifier = Modifier.align(Alignment.CenterHorizontally)
+                                    )
+                                    Text(
+                                        text = "${unlockedAchievements.size}/${ALL_ACHIEVEMENTS.size} débloqués · récompenses en perles",
+                                        color = Color.White.copy(alpha = 0.45f),
+                                        fontSize = 10.sp,
+                                        modifier = Modifier
+                                            .align(Alignment.CenterHorizontally)
+                                            .padding(bottom = 10.dp)
+                                    )
                                     ALL_ACHIEVEMENTS.forEach { achievement ->
                                         val isUnlocked = achievement.id in unlockedAchievements
                                         Row(
@@ -1620,18 +1622,23 @@ fun GameScreen(
                                         .fillMaxWidth()
                                         .fillMaxHeight(0.85f)
                                         .clip(RoundedCornerShape(24.dp))
-                                        .background(Color.Black.copy(alpha = 0.55f))
-                                        .border(1.5.dp, Color(0xFF1B9CFC).copy(alpha = 0.3f), RoundedCornerShape(24.dp))
+                                        .background(Color.Black.copy(alpha = 0.5f))
+                                        .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(24.dp))
                                         .verticalScroll(rememberScrollState())
                                         .padding(16.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
                                     Text(
-                                        text = "PERSONNALISATION DU POULPE",
+                                        text = "🛍️ BOUTIQUE & SKINS",
                                         color = Color(0xFF55E6C1),
                                         fontSize = 15.sp,
                                         fontWeight = FontWeight.Black,
-                                        letterSpacing = 1.sp,
+                                        letterSpacing = 1.5.sp
+                                    )
+                                    Text(
+                                        text = "Débloque avec ton record, achète avec tes perles",
+                                        color = Color.White.copy(alpha = 0.45f),
+                                        fontSize = 10.sp,
                                         modifier = Modifier.padding(bottom = 8.dp)
                                     )
 
@@ -1845,20 +1852,37 @@ fun GameScreen(
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
+                                        .fillMaxHeight(0.85f)
                                         .clip(RoundedCornerShape(24.dp))
-                                        .background(Color.Black.copy(alpha = 0.45f))
+                                        .background(Color.Black.copy(alpha = 0.5f))
                                         .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(24.dp))
-                                        .padding(20.dp)
+                                        .verticalScroll(rememberScrollState())
+                                        .padding(16.dp)
                                 ) {
                                     Text(
-                                        text = "RÉGLAGES AUDIO",
-                                        color = Color.White,
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Bold,
+                                        text = "⚙️ OPTIONS",
+                                        color = Color(0xFF55E6C1),
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Black,
                                         letterSpacing = 1.5.sp,
+                                        modifier = Modifier.align(Alignment.CenterHorizontally)
+                                    )
+                                    Text(
+                                        text = "Audio et mises à jour du jeu",
+                                        color = Color.White.copy(alpha = 0.45f),
+                                        fontSize = 10.sp,
                                         modifier = Modifier
                                             .align(Alignment.CenterHorizontally)
-                                            .padding(bottom = 16.dp)
+                                            .padding(bottom = 14.dp)
+                                    )
+
+                                    Text(
+                                        text = "🔊 AUDIO",
+                                        color = Color.White.copy(alpha = 0.85f),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 0.5.sp,
+                                        modifier = Modifier.padding(bottom = 8.dp)
                                     )
 
                                     // Music Volume Slider
@@ -1905,11 +1929,11 @@ fun GameScreen(
                                     // GITHUB UPDATE UI SECTION (Fully Reactive)
                                     run {
                                         Text(
-                                            text = "MISES À JOUR DE L'APK",
-                                            color = Color.White,
-                                            fontSize = 13.sp,
+                                            text = "📲 MISES À JOUR",
+                                            color = Color.White.copy(alpha = 0.85f),
+                                            fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold,
-                                            letterSpacing = 1.sp,
+                                            letterSpacing = 0.5.sp,
                                             modifier = Modifier.padding(bottom = 8.dp)
                                         )
 
