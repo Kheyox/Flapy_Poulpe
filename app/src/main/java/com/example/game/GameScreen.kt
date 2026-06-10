@@ -132,6 +132,16 @@ fun GameScreen(
     val bgMid by animateColorAsState(biome.mid, tween(1800), label = "bgMid")
     val bgBottom by animateColorAsState(biome.bottom, tween(1800), label = "bgBottom")
 
+    // Continuous depth factor (0 = surface … 3 = abyss), smoothly animated so the
+    // decor itself (sun rays, fish, reef life, snow, plankton) morphs with the dive.
+    val depthTarget = when {
+        score < 10 -> 0f
+        score < 25 -> 1f
+        score < 50 -> 2f
+        else -> 3f
+    }
+    val depth by animateFloatAsState(depthTarget, tween(2200), label = "depth")
+
     var menuTab by remember { mutableStateOf("home") }
     var musicVolume by remember { mutableStateOf(SoundManager.musicVolume) }
     var sfxVolume by remember { mutableStateOf(SoundManager.sfxVolume) }
@@ -196,25 +206,29 @@ fun GameScreen(
             val scaleY = size.height / virtualHeight
 
             scale(scaleX, scaleY, pivot = Offset.Zero) {
-                // A. Background light shafts / sun rays coming from top right
-                for (i in 0..3) {
-                    val angleOffset = i * 25f
-                    val path = Path().apply {
-                        moveTo(750f + angleOffset, -10f)
-                        lineTo(900f + angleOffset, -10f)
-                        lineTo(400f + angleOffset, 1020f)
-                        lineTo(250f + angleOffset, 1020f)
-                        close()
-                    }
-                    drawPath(
-                        path = path,
-                        brush = Brush.verticalGradient(
-                            colors = listOf(
-                                Color(0x22FFFFFF),
-                                Color(0x00FFFFFF)
+                // A. Background light shafts — sunlight only reaches the upper ocean,
+                // so the rays fade away as the dive gets deeper.
+                val sunAlpha = (1f - depth * 0.5f).coerceIn(0f, 1f)
+                if (sunAlpha > 0.01f) {
+                    for (i in 0..3) {
+                        val angleOffset = i * 25f
+                        val path = Path().apply {
+                            moveTo(750f + angleOffset, -10f)
+                            lineTo(900f + angleOffset, -10f)
+                            lineTo(400f + angleOffset, 1020f)
+                            lineTo(250f + angleOffset, 1020f)
+                            close()
+                        }
+                        drawPath(
+                            path = path,
+                            brush = Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.White.copy(alpha = 0.13f * sunAlpha),
+                                    Color(0x00FFFFFF)
+                                )
                             )
                         )
-                    )
+                    }
                 }
 
                 // B. Ambient Bubbles
@@ -238,84 +252,139 @@ fun GameScreen(
                 }
 
                 // B2. Distant fish silhouettes drifting across the background.
+                // Fish live near the surface: they thin out and vanish in the abyss.
                 // Integer speed factors keep motion continuous when waveTime wraps at 2π.
                 val twoPi = (Math.PI * 2).toFloat()
-                for (i in 0 until 5) {
-                    val k = i + 1
-                    val progress = ((waveTime * k) % twoPi) / twoPi
-                    val fx = 1150f - progress * 1400f
-                    val fy = 110f + i * 165f + sin(waveTime * 2f + i * 1.7f).toFloat() * 18f
-                    val fishScale = 0.7f + (i % 3) * 0.35f
-                    val silhouette = Color(0xFF0A3D62).copy(alpha = 0.4f)
-                    // Body
-                    drawOval(
-                        color = silhouette,
-                        topLeft = Offset(fx - 22f * fishScale, fy - 9f * fishScale),
-                        size = Size(44f * fishScale, 18f * fishScale)
-                    )
-                    // Tail fin (fish swim right-to-left, tail trails on the right)
-                    val tail = Path().apply {
-                        moveTo(fx + 18f * fishScale, fy)
-                        lineTo(fx + 34f * fishScale, fy - 10f * fishScale)
-                        lineTo(fx + 34f * fishScale, fy + 10f * fishScale)
-                        close()
+                val fishAlpha = (1f - ((depth - 1.4f) / 1.3f).coerceIn(0f, 1f)) * 0.4f
+                if (fishAlpha > 0.01f) {
+                    for (i in 0 until 5) {
+                        val k = i + 1
+                        val progress = ((waveTime * k) % twoPi) / twoPi
+                        val fx = 1150f - progress * 1400f
+                        val fy = 110f + i * 165f + sin(waveTime * 2f + i * 1.7f).toFloat() * 18f
+                        val fishScale = 0.7f + (i % 3) * 0.35f
+                        val silhouette = Color(0xFF0A3D62).copy(alpha = fishAlpha)
+                        // Body
+                        drawOval(
+                            color = silhouette,
+                            topLeft = Offset(fx - 22f * fishScale, fy - 9f * fishScale),
+                            size = Size(44f * fishScale, 18f * fishScale)
+                        )
+                        // Tail fin (fish swim right-to-left, tail trails on the right)
+                        val tail = Path().apply {
+                            moveTo(fx + 18f * fishScale, fy)
+                            lineTo(fx + 34f * fishScale, fy - 10f * fishScale)
+                            lineTo(fx + 34f * fishScale, fy + 10f * fishScale)
+                            close()
+                        }
+                        drawPath(tail, silhouette)
                     }
-                    drawPath(tail, silhouette)
                 }
 
-                // B3. Seabed decoration: rocks, starfish and swaying fan corals
+                // B2b. Marine snow: organic specks drifting down, denser as we sink
+                val snowAlpha = ((depth - 0.7f) / 1.2f).coerceIn(0f, 1f)
+                if (snowAlpha > 0.01f) {
+                    for (i in 0 until 36) {
+                        val k = 1 + (i % 3)
+                        val fall = ((waveTime * k) % twoPi) / twoPi
+                        val sx = ((i * 173) % 1050).toFloat() + sin(waveTime + i).toFloat() * 8f
+                        val sy = (((i * 311) % 1000).toFloat() + fall * 1100f) % 1100f - 50f
+                        drawCircle(
+                            color = Color.White.copy(alpha = (0.08f + (i % 4) * 0.04f) * snowAlpha),
+                            radius = 1.5f + (i % 3),
+                            center = Offset(sx, sy)
+                        )
+                    }
+                }
+
+                // B2c. Bioluminescent plankton: pulsing glow dots, signature of the abyss
+                val bioAlpha = ((depth - 2.2f) / 0.8f).coerceIn(0f, 1f)
+                if (bioAlpha > 0.01f) {
+                    for (i in 0 until 14) {
+                        val px = ((i * 257) % 1000).toFloat() + sin(waveTime * 0.8f + i * 2f).toFloat() * 30f
+                        val py = ((i * 419) % 950).toFloat() + cos(waveTime * 0.6f + i).toFloat() * 24f
+                        val pulse = sin(waveTime * 3f + i * 1.3f).toFloat() * 0.5f + 0.5f
+                        val glowColor = if (i % 2 == 0) Color(0xFF18DCFF) else Color(0xFF7EFFF5)
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(glowColor.copy(alpha = (0.45f * pulse + 0.12f) * bioAlpha), Color.Transparent),
+                                center = Offset(px, py),
+                                radius = 14f + pulse * 8f
+                            ),
+                            radius = 14f + pulse * 8f,
+                            center = Offset(px, py)
+                        )
+                        drawCircle(
+                            color = glowColor.copy(alpha = (0.65f * pulse + 0.2f) * bioAlpha),
+                            radius = 2.2f,
+                            center = Offset(px, py)
+                        )
+                    }
+                }
+
+                // B3. Seabed decoration. Rocks survive every depth (they just darken);
+                // the colorful reef life (fan corals, starfish) belongs to shallow
+                // waters and disappears as the abyss takes over.
+                val reefAlpha = (1f - ((depth - 0.8f) / 1.5f).coerceIn(0f, 1f))
+                val rockDim = (1f - depth * 0.16f).coerceIn(0.45f, 1f)
                 listOf(
                     Triple(120f, 985f, 55f),
                     Triple(420f, 995f, 70f),
                     Triple(700f, 990f, 48f),
                     Triple(920f, 998f, 62f)
                 ).forEach { (rx, ry, rr) ->
-                    drawCircle(Color(0xFF14506E).copy(alpha = 0.8f), radius = rr, center = Offset(rx, ry + rr * 0.55f))
-                    drawCircle(Color(0xFF1B6A8F).copy(alpha = 0.5f), radius = rr * 0.55f, center = Offset(rx - rr * 0.3f, ry + rr * 0.35f))
+                    drawCircle(Color(0xFF14506E).copy(alpha = 0.8f * rockDim), radius = rr, center = Offset(rx, ry + rr * 0.55f))
+                    drawCircle(Color(0xFF1B6A8F).copy(alpha = 0.5f * rockDim), radius = rr * 0.55f, center = Offset(rx - rr * 0.3f, ry + rr * 0.35f))
                 }
 
-                // Pink fan corals waving with the tide
-                for (i in 0 until 3) {
-                    val baseX = 270f + i * 280f
-                    val sway = sin(waveTime * 1.5f + i).toFloat() * 5f
-                    for (b in -2..2) {
-                        drawLine(
-                            color = Color(0xFFFF7675).copy(alpha = 0.45f),
-                            start = Offset(baseX, 1008f),
-                            end = Offset(baseX + b * 17f + sway, 945f + kotlin.math.abs(b) * 13f),
-                            strokeWidth = 5.5f,
-                            cap = StrokeCap.Round
-                        )
-                    }
-                }
-
-                // Starfish resting on the seabed
-                listOf(
-                    Offset(185f, 962f) to Color(0xFFFF9F43),
-                    Offset(765f, 968f) to Color(0xFFFF6B6B)
-                ).forEach { (c, starColor) ->
-                    val deg2rad = (Math.PI / 180f).toFloat()
-                    val star = Path().apply {
-                        for (b in 0 until 5) {
-                            val ang = (b * 72f - 90f) * deg2rad
-                            val tipX = c.x + cos(ang) * 16f
-                            val tipY = c.y + sin(ang) * 16f
-                            val innerAng = ang + 36f * deg2rad
-                            val inX = c.x + cos(innerAng) * 7f
-                            val inY = c.y + sin(innerAng) * 7f
-                            if (b == 0) moveTo(tipX, tipY) else lineTo(tipX, tipY)
-                            lineTo(inX, inY)
+                if (reefAlpha > 0.01f) {
+                    // Pink fan corals waving with the tide
+                    for (i in 0 until 3) {
+                        val baseX = 270f + i * 280f
+                        val sway = sin(waveTime * 1.5f + i).toFloat() * 5f
+                        for (b in -2..2) {
+                            drawLine(
+                                color = Color(0xFFFF7675).copy(alpha = 0.45f * reefAlpha),
+                                start = Offset(baseX, 1008f),
+                                end = Offset(baseX + b * 17f + sway, 945f + kotlin.math.abs(b) * 13f),
+                                strokeWidth = 5.5f,
+                                cap = StrokeCap.Round
+                            )
                         }
-                        close()
                     }
-                    drawPath(star, starColor.copy(alpha = 0.85f))
-                    drawCircle(Color.White.copy(alpha = 0.3f), radius = 3f, center = c)
+
+                    // Starfish resting on the seabed
+                    listOf(
+                        Offset(185f, 962f) to Color(0xFFFF9F43),
+                        Offset(765f, 968f) to Color(0xFFFF6B6B)
+                    ).forEach { (c, starColor) ->
+                        val deg2rad = (Math.PI / 180f).toFloat()
+                        val star = Path().apply {
+                            for (b in 0 until 5) {
+                                val ang = (b * 72f - 90f) * deg2rad
+                                val tipX = c.x + cos(ang) * 16f
+                                val tipY = c.y + sin(ang) * 16f
+                                val innerAng = ang + 36f * deg2rad
+                                val inX = c.x + cos(innerAng) * 7f
+                                val inY = c.y + sin(innerAng) * 7f
+                                if (b == 0) moveTo(tipX, tipY) else lineTo(tipX, tipY)
+                                lineTo(inX, inY)
+                            }
+                            close()
+                        }
+                        drawPath(star, starColor.copy(alpha = 0.85f * reefAlpha))
+                        drawCircle(Color.White.copy(alpha = 0.3f * reefAlpha), radius = 3f, center = c)
+                    }
                 }
 
-                // C. Procedural Waving Seaweed at bottom
+                // C. Procedural Waving Seaweed at bottom — plants need light, so they
+                // get shorter and sparser as the dive sinks toward the abyss.
+                val seaweedFade = (1f - depth * 0.24f).coerceIn(0.12f, 1f)
                 for (i in 0..11) {
+                    // In deep water only a few stubborn strands remain
+                    if (depth > 2f && i % 3 != 0) continue
                     val baseX = i * 92f + 18f
-                    val heightCoeff = if (i % 2 == 0) 140f else 220f
+                    val heightCoeff = (if (i % 2 == 0) 140f else 220f) * seaweedFade.coerceAtLeast(0.4f)
                     val seaweedPath = Path().apply {
                         moveTo(baseX, 1010f)
                         // sine wave offsets aligned with the tick timer
@@ -338,7 +407,7 @@ fun GameScreen(
                     
                     drawPath(
                         path = seaweedPath,
-                        color = seaweedColor.copy(alpha = 0.55f),
+                        color = seaweedColor.copy(alpha = 0.55f * seaweedFade),
                         style = Stroke(width = 18f, cap = StrokeCap.Round)
                     )
                 }
@@ -527,6 +596,16 @@ fun GameScreen(
                 val isBlinking = ((waveTime * 0.7f) % 2.5f) < 0.13f
                 val octoX = 220f
                 val octoY = if (state == GameScreenState.MENU) 480f + sin(waveTime * 3.5f).toFloat() * 25f else octopusY
+
+                // Octopus body language (no bird-style tilt — octopuses don't nose-dive):
+                // jet propulsion elongates the body on an upward burst, it spreads out
+                // like a parachute while sinking, and the mantle breathes gently at rest.
+                val jetStretch = if (state == GameScreenState.PLAYING) ((-velocityY - 80f) / 480f).coerceIn(0f, 1f) else 0f
+                val sinkSpread = if (state == GameScreenState.PLAYING) ((velocityY - 220f) / 650f).coerceIn(0f, 1f) else 0f
+                val mantleBreath = if (state == GameScreenState.PLAYING) 0f else sin(waveTime * 2.5f).toFloat() * 0.035f
+                val octoScaleX = 1f - jetStretch * 0.12f + sinkSpread * 0.10f + mantleBreath
+                val octoScaleY = 1f + jetStretch * 0.20f - sinkSpread * 0.08f - mantleBreath
+                scale(scaleX = octoScaleX, scaleY = octoScaleY, pivot = Offset(octoX, octoY)) {
 
                 // Render Octopus tentacles
                 for (t in 0 until 6) {
@@ -829,6 +908,7 @@ fun GameScreen(
                         drawPath(happyPath, Color(0xFF2C3E50), style = Stroke(width = 2f, cap = StrokeCap.Round))
                     }
                 }
+                } // end of octopus squash & stretch scale block
 
                 // H. ABYSSAL DARKNESS — deep biomes close in around the octopus,
                 // leaving only a halo of light near the player (score >= 60).
