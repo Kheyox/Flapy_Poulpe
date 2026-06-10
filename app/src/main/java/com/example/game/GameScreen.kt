@@ -649,37 +649,37 @@ fun GameScreen(
                 val octoScaleY = 1f + jetStretch * 0.20f - sinkSpread * 0.08f - mantleBreath
                 scale(scaleX = octoScaleX, scaleY = octoScaleY, pivot = Offset(octoX, octoY)) {
 
-                // Render Octopus tentacles as organic tapered shapes: wide at the
-                // mantle, thinning to a point, with the tip curling like a real arm.
+                // Render Octopus tentacles, cartoon style: six arms splayed out in a
+                // fan from under the mantle, each ending in the iconic spiral curl.
+                // The spine is walked step by step while its direction progressively
+                // bends, which naturally produces the curled tip.
+                val speedDrag = (velocityY * 0.0012f).coerceIn(-0.6f, 0.6f)
                 for (t in 0 until 6) {
-                    val frac = t / 5f
-                    val rawAngle = -0.5f + frac * 1.0f
-                    // Drag tentacles backward depending on swimming velocities
-                    val speedDrag = (velocityY * 0.0011f).coerceIn(-0.55f, 0.55f)
-                    val finalAngle = rawAngle + speedDrag
-                    val wave = sin(waveTime * 7f - t * 1.2f).toFloat()
-                    val tLen = if (t % 2 == 0) 64f else 72f
+                    val side = (t - 2.5f) / 2.5f // -1 (far left) … +1 (far right)
+                    val outward = if (t < 3) -1f else 1f
+                    val wave = sin(waveTime * 6f - t * 1.3f).toFloat()
 
-                    val sx = octoX + sin(finalAngle) * 9f
-                    val sy = octoY + 15f
-                    val cx = octoX + sin(finalAngle) * (tLen * 0.5f) + wave * 5f
-                    val cy = sy + cos(finalAngle) * (tLen * 0.55f)
-                    val ex = octoX + sin(finalAngle) * tLen + wave * 10f
-                    val ey = sy + cos(finalAngle) * tLen
-                    // The very tip curls sideways, away from the body axis
-                    val curlDir = if (t < 3) -1f else 1f
-                    val tipX = ex + (sin(finalAngle) * 6f + curlDir * 8f) + wave * 4f
-                    val tipY = ey + cos(finalAngle) * 4f - 4f
+                    // Arms attach along the skirt of the mantle, not at a single point
+                    val baseX = octoX + side * 20f
+                    val baseY = octoY + 13f
 
-                    // Sample the centerline (quadratic Bézier + curled tip)
-                    val spine = mutableListOf<Offset>()
-                    for (j in 0..7) {
-                        val u = j / 7f
-                        val px = (1 - u) * (1 - u) * sx + 2 * (1 - u) * u * cx + u * u * ex
-                        val py = (1 - u) * (1 - u) * sy + 2 * (1 - u) * u * cy + u * u * ey
+                    // Walk the spine: start fanning outward/down, then bend more and
+                    // more so the tip curls up and out like in classic drawings.
+                    val fanAngle = side * 1.05f + speedDrag
+                    val totalCurl = side * 2.3f + outward * 0.7f + wave * 0.35f
+                    var px = baseX
+                    var py = baseY
+                    var ds = 10f
+                    val spine = mutableListOf(Offset(px, py))
+                    val steps = 9
+                    for (j in 1..steps) {
+                        val u = j / steps.toFloat()
+                        val theta = fanAngle + totalCurl * u * u + wave * 0.15f * u
+                        px += sin(theta) * ds
+                        py += cos(theta) * ds
                         spine.add(Offset(px, py))
+                        ds *= 0.92f
                     }
-                    spine.add(Offset(tipX, tipY))
 
                     // Build the tapered outline around the spine
                     val leftEdge = mutableListOf<Offset>()
@@ -690,7 +690,7 @@ fun GameScreen(
                         val dLen = kotlin.math.sqrt(dir.x * dir.x + dir.y * dir.y).coerceAtLeast(0.001f)
                         val nx = -dir.y / dLen
                         val ny = dir.x / dLen
-                        val halfWidth = 10f * (1f - j / lastIndex.toFloat()) + 1.2f
+                        val halfWidth = 8.5f * (1f - j / lastIndex.toFloat()) + 1.5f
                         leftEdge.add(Offset(spine[j].x + nx * halfWidth, spine[j].y + ny * halfWidth))
                         rightEdge.add(Offset(spine[j].x - nx * halfWidth, spine[j].y - ny * halfWidth))
                     }
@@ -704,33 +704,43 @@ fun GameScreen(
                         path = tentaclePath,
                         brush = Brush.verticalGradient(
                             colors = listOf(selectedSkin.primaryColor, selectedSkin.accentColor),
-                            startY = octoY,
-                            endY = octoY + 95f
+                            startY = octoY - 10f,
+                            endY = octoY + 90f
                         )
                     )
-                    // Subtle lighter underside along the inner edge sells the volume
-                    val innerHighlight = Path().apply {
-                        moveTo(rightEdge[1].x, rightEdge[1].y)
-                        for (j in 2 until rightEdge.size - 1) lineTo(rightEdge[j].x, rightEdge[j].y)
+
+                    // A few pale suckers along the underside of the outer arms
+                    if (t == 0 || t == 5) {
+                        for (s in intArrayOf(3, 5, 7)) {
+                            drawCircle(
+                                color = Color.White.copy(alpha = 0.30f),
+                                radius = (3.2f - s * 0.25f).coerceAtLeast(1.2f),
+                                center = spine[s]
+                            )
+                        }
                     }
-                    drawPath(
-                        path = innerHighlight,
-                        color = Color.White.copy(alpha = 0.18f),
-                        style = Stroke(width = 2f, cap = StrokeCap.Round)
-                    )
                 }
 
-                // Draw Octopus Head/Body
+                // Draw Octopus Head/Body — a tall rounded cartoon mantle, wider at
+                // the cheeks with a soft skirt where the arms attach (not a circle).
                 val headGradient = Brush.radialGradient(
                     colors = listOf(selectedSkin.primaryColor, selectedSkin.accentColor),
-                    center = Offset(octoX - 8f, octoY - 8f),
-                    radius = 35f
+                    center = Offset(octoX - 9f, octoY - 14f),
+                    radius = 52f
                 )
-                // circular bulbous head
-                drawCircle(
-                    brush = headGradient,
-                    radius = 30f,
-                    center = Offset(octoX, octoY)
+                val mantle = Path().apply {
+                    moveTo(octoX - 30f, octoY + 14f)
+                    cubicTo(octoX - 38f, octoY - 14f, octoX - 24f, octoY - 42f, octoX, octoY - 42f)
+                    cubicTo(octoX + 24f, octoY - 42f, octoX + 38f, octoY - 14f, octoX + 30f, octoY + 14f)
+                    quadraticTo(octoX, octoY + 26f, octoX - 30f, octoY + 14f)
+                    close()
+                }
+                drawPath(mantle, headGradient)
+                // Glossy highlight on the top-left of the dome
+                drawOval(
+                    color = Color.White.copy(alpha = 0.18f),
+                    topLeft = Offset(octoX - 22f, octoY - 37f),
+                    size = Size(20f, 12f)
                 )
 
                 // Protective shimmer while invulnerable (just after a shield save)
@@ -752,60 +762,60 @@ fun GameScreen(
                 // --- 1. EXPANSIVE AQUATIC ACCESSORIES (CROWN / SAILOR HAT ON THE HEAD) ---
                 if (selectedAccessory == OctopusAccessory.CROWN) {
                     val crownPath = Path().apply {
-                        moveTo(octoX - 16f, octoY - 26f)
-                        lineTo(octoX - 22f, octoY - 44f)
-                        lineTo(octoX - 8f, octoY - 34f)
-                        lineTo(octoX, octoY - 50f)
-                        lineTo(octoX + 8f, octoY - 34f)
-                        lineTo(octoX + 22f, octoY - 44f)
-                        lineTo(octoX + 16f, octoY - 26f)
+                        moveTo(octoX - 16f, octoY - 34f)
+                        lineTo(octoX - 22f, octoY - 52f)
+                        lineTo(octoX - 8f, octoY - 42f)
+                        lineTo(octoX, octoY - 58f)
+                        lineTo(octoX + 8f, octoY - 42f)
+                        lineTo(octoX + 22f, octoY - 52f)
+                        lineTo(octoX + 16f, octoY - 34f)
                         close()
                     }
                     drawPath(crownPath, Color(0xFFFFD700)) // Shiny Gold Base
                     drawPath(crownPath, Color(0xFFD35400), style = Stroke(width = 2f))
                     // Gemstones on tips
-                    drawCircle(Color(0xFFE74C3C), radius = 3.5f, center = Offset(octoX, octoY - 50f))
-                    drawCircle(Color(0xFF3498DB), radius = 3f, center = Offset(octoX - 22f, octoY - 44f))
-                    drawCircle(Color(0xFF2ECC71), radius = 3f, center = Offset(octoX + 22f, octoY - 44f))
+                    drawCircle(Color(0xFFE74C3C), radius = 3.5f, center = Offset(octoX, octoY - 58f))
+                    drawCircle(Color(0xFF3498DB), radius = 3f, center = Offset(octoX - 22f, octoY - 52f))
+                    drawCircle(Color(0xFF2ECC71), radius = 3f, center = Offset(octoX + 22f, octoY - 52f))
                 } else if (selectedAccessory == OctopusAccessory.SAILOR) {
                     // Marine officer cap
                     val capPath = Path().apply {
-                        moveTo(octoX - 18f, octoY - 26f)
-                        lineTo(octoX - 22f, octoY - 38f)
-                        quadraticTo(octoX, octoY - 42f, octoX + 22f, octoY - 38f)
-                        lineTo(octoX + 18f, octoY - 26f)
+                        moveTo(octoX - 18f, octoY - 34f)
+                        lineTo(octoX - 22f, octoY - 46f)
+                        quadraticTo(octoX, octoY - 50f, octoX + 22f, octoY - 46f)
+                        lineTo(octoX + 18f, octoY - 34f)
                         close()
                     }
                     drawPath(capPath, Color.White)
                     drawPath(capPath, Color(0xFF2C3E50), style = Stroke(width = 1.5f))
                     // Navy blue stripe line
                     val bandPath = Path().apply {
-                        moveTo(octoX - 18f, octoY - 26f)
-                        lineTo(octoX - 19.5f, octoY - 29.5f)
-                        quadraticTo(octoX, octoY - 33f, octoX + 19.5f, octoY - 29.5f)
-                        lineTo(octoX + 18f, octoY - 26f)
+                        moveTo(octoX - 18f, octoY - 34f)
+                        lineTo(octoX - 19.5f, octoY - 37.5f)
+                        quadraticTo(octoX, octoY - 41f, octoX + 19.5f, octoY - 37.5f)
+                        lineTo(octoX + 18f, octoY - 34f)
                         close()
                     }
                     drawPath(bandPath, Color(0xFF1B9CFC))
                     // Red pompom at peak
-                    drawCircle(Color(0xFFD63031), radius = 3.5f, center = Offset(octoX, octoY - 42f))
+                    drawCircle(Color(0xFFD63031), radius = 3.5f, center = Offset(octoX, octoY - 50f))
                 } else if (selectedAccessory == OctopusAccessory.TOP_HAT) {
                     // Magician's top hat: wide brim, tall crown and a purple ribbon
                     drawRoundRect(
                         color = Color(0xFF1E272E),
-                        topLeft = Offset(octoX - 24f, octoY - 32f),
+                        topLeft = Offset(octoX - 24f, octoY - 40f),
                         size = Size(48f, 6f),
                         cornerRadius = CornerRadius(3f, 3f)
                     )
                     drawRoundRect(
                         color = Color(0xFF1E272E),
-                        topLeft = Offset(octoX - 15f, octoY - 60f),
+                        topLeft = Offset(octoX - 15f, octoY - 68f),
                         size = Size(30f, 30f),
                         cornerRadius = CornerRadius(3f, 3f)
                     )
                     drawRect(
                         color = Color(0xFF8E44AD),
-                        topLeft = Offset(octoX - 15f, octoY - 38f),
+                        topLeft = Offset(octoX - 15f, octoY - 46f),
                         size = Size(30f, 7f)
                     )
                 } else if (selectedAccessory == OctopusAccessory.NINJA_BAND) {
@@ -836,10 +846,11 @@ fun GameScreen(
                     )
                 }
 
-                // Render cartoon expressively reacting glowing Eyes
-                val eyeLeft = Offset(octoX - 11f, octoY - 6f)
-                val eyeRight = Offset(octoX + 11f, octoY - 6f)
-                val eyeRadius = 7.5f
+                // Render cartoon expressively reacting glowing Eyes — big and round,
+                // they carry most of the character's charm (see classic octopus art)
+                val eyeLeft = Offset(octoX - 12f, octoY - 9f)
+                val eyeRight = Offset(octoX + 12f, octoY - 9f)
+                val eyeRadius = 9.5f
 
                 if (state == GameScreenState.GAME_OVER) {
                     // Dead or Dizzy Cross eyes (X X) representing collision crash
@@ -879,18 +890,18 @@ fun GameScreen(
                         // Left Pupil
                         drawCircle(
                             color = Color(0xFF2C3E50),
-                            radius = 4.5f,
+                            radius = 5.8f,
                             center = Offset(eyeLeft.x + pupilDirX, eyeLeft.y + pupilDirY)
                         )
                         // Kawaii anime sparkles: Diagonal highlight glare circles inside pupil
                         drawCircle(
                             color = Color.White,
-                            radius = 1.8f,
+                            radius = 2.3f,
                             center = Offset(eyeLeft.x + pupilDirX - 1.5f, eyeLeft.y + pupilDirY - 1.5f)
                         )
                         drawCircle(
                             color = Color.White,
-                            radius = 0.8f,
+                            radius = 1.1f,
                             center = Offset(eyeLeft.x + pupilDirX + 1.5f, eyeLeft.y + pupilDirY + 1.5f)
                         )
                     }
@@ -900,18 +911,18 @@ fun GameScreen(
                     // Right Pupil
                     drawCircle(
                         color = Color(0xFF2C3E50),
-                        radius = 4.5f,
+                        radius = 5.8f,
                         center = Offset(eyeRight.x + pupilDirX, eyeRight.y + pupilDirY)
                     )
                     // Kawaii anime sparkles
                     drawCircle(
                         color = Color.White,
-                        radius = 1.8f,
+                        radius = 2.3f,
                         center = Offset(eyeRight.x + pupilDirX - 1.5f, eyeRight.y + pupilDirY - 1.5f)
                     )
                     drawCircle(
                         color = Color.White,
-                        radius = 0.8f,
+                        radius = 1.1f,
                         center = Offset(eyeRight.x + pupilDirX + 1.5f, eyeRight.y + pupilDirY + 1.5f)
                     )
                 }
@@ -920,10 +931,10 @@ fun GameScreen(
                 if (selectedAccessory == OctopusAccessory.SUNGLASSES) {
                     val shadesColor = Color(0xFF2C3E50)
                     // Draw outer round sunglasses rims
-                    drawCircle(color = shadesColor, radius = 9.5f, center = Offset(octoX - 11f, octoY - 6f))
-                    drawCircle(color = Color.White, radius = 9.5f, center = Offset(octoX - 11f, octoY - 6f), style = Stroke(width = 1.5f))
-                    drawCircle(color = shadesColor, radius = 9.5f, center = Offset(octoX + 11f, octoY - 6f))
-                    drawCircle(color = Color.White, radius = 9.5f, center = Offset(octoX + 11f, octoY - 6f), style = Stroke(width = 1.5f))
+                    drawCircle(color = shadesColor, radius = 11.5f, center = Offset(octoX - 12f, octoY - 9f))
+                    drawCircle(color = Color.White, radius = 11.5f, center = Offset(octoX - 12f, octoY - 9f), style = Stroke(width = 1.5f))
+                    drawCircle(color = shadesColor, radius = 11.5f, center = Offset(octoX + 12f, octoY - 9f))
+                    drawCircle(color = Color.White, radius = 11.5f, center = Offset(octoX + 12f, octoY - 9f), style = Stroke(width = 1.5f))
                     // Sunglasses center connection bridge
                     drawLine(
                         color = shadesColor,
@@ -939,7 +950,7 @@ fun GameScreen(
                     drawLine(Color.White.copy(alpha = 0.6f), start = Offset(octoX + 7f, octoY - 10f), end = Offset(octoX + 14f, octoY - 3f), strokeWidth = 1.5f)
                 } else if (selectedAccessory == OctopusAccessory.PIRATE_PATCH) {
                     // Dark pirate eye patch over left eye
-                    drawCircle(color = Color(0xFF2C3E50), radius = 10f, center = Offset(octoX - 11f, octoY - 6f))
+                    drawCircle(color = Color(0xFF2C3E50), radius = 12f, center = Offset(octoX - 12f, octoY - 9f))
                     // Diagonally slanting strap
                     drawLine(
                         color = Color(0xFF2C3E50),
