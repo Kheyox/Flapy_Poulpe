@@ -142,50 +142,68 @@ object SoundManager {
     fun startMusic() {
         if (isPlayingMusic) return
         isPlayingMusic = true
-        
+
         musicJob = scope.launch {
-            val bpm = 110
+            val bpm = 92
             val beatMs = (60_000 / bpm).toLong()
-            val scale = doubleArrayOf(
-                130.81, 130.81, 196.00, 196.00, // C3, C3, G3, G3
-                220.00, 220.00, 349.23, 349.23  // A3, A3, F3, F3
+
+            // Dreamy underwater progression: Am — F — C — G, four beats per chord.
+            // Each chord = [bass, triad notes...] in Hz.
+            val chords = arrayOf(
+                doubleArrayOf(110.00, 220.00, 261.63, 329.63), // Am: A2 | A3 C4 E4
+                doubleArrayOf(87.31, 174.61, 220.00, 261.63),  // F:  F2 | F3 A3 C4
+                doubleArrayOf(130.81, 261.63, 329.63, 392.00), // C:  C3 | C4 E4 G4
+                doubleArrayOf(98.00, 196.00, 246.94, 293.66)   // G:  G2 | G3 B3 D4
             )
-            val bubbleMelody = doubleArrayOf(
-                261.63, 329.63, 392.00, 523.25, // C4, E4, G4, C5
-                440.00, 523.25, 587.33, 659.25  // A4, C5, D5, E5
-            )
-            
-            var index = 0
+            // Arpeggio pattern over the triad (indices into chord[1..3]), one note per beat
+            val arpPattern = intArrayOf(0, 2, 1, 2)
+
+            var beat = 0
             while (isPlayingMusic) {
-                val bassFreq = scale[index % scale.size]
-                val bubFreq = if (index % 4 == 0) bubbleMelody[(index / 2) % bubbleMelody.size] else 0.0
-                
+                val chord = chords[(beat / 4) % chords.size]
+                val bassFreq = chord[0]
+                val melodyFreq = chord[1 + arpPattern[beat % 4]] * 2.0 // one octave up
+                // A high sparkle every 8 beats adds magic without clutter
+                val sparkleFreq = if (beat % 8 == 7) chord[2] * 4.0 else 0.0
+
                 val duration = beatMs / 1000f
                 val numSamples = (SAMPLE_RATE * duration).toInt()
                 val samples = ShortArray(numSamples)
-                
-                val vol = musicVolume * 0.22f
-                
+                val vol = musicVolume * 0.20f
+
                 for (i in 0 until numSamples) {
                     val t = i.toFloat() / SAMPLE_RATE
-                    val bassAngle = 2.0 * Math.PI * bassFreq * t
-                    var signal = sin(bassAngle)
-                    
-                    if (bubFreq > 0) {
-                        val bubAngle = 2.0 * Math.PI * bubFreq * t
-                        val bubEnv = (1.0f - (t / (duration * 0.6f))).coerceIn(0f, 1f)
-                        signal += sin(bubAngle) * 0.45f * bubEnv
+
+                    // Layer 1 — round sine bass, gently decaying over the beat
+                    val bassEnv = 1.0f - (t / duration) * 0.45f
+                    var signal = sin(2.0 * Math.PI * bassFreq * t) * 0.50 * bassEnv
+
+                    // Layer 2 — soft pad holding the chord triad
+                    for (n in 1..3) {
+                        signal += sin(2.0 * Math.PI * chord[n] * t) * 0.09
                     }
-                    
-                    val finalEnv = if (t > duration * 0.82f) {
-                        (1.0f - ((t - duration * 0.82f) / (duration * 0.18f))).coerceIn(0f, 1f)
+
+                    // Layer 3 — plucked arpeggio melody with a fast-decay envelope
+                    val pluckEnv = (1.0f - (t / (duration * 0.75f))).coerceIn(0f, 1f)
+                    signal += sin(2.0 * Math.PI * melodyFreq * t) * 0.32 * pluckEnv * pluckEnv
+
+                    // Occasional shimmering sparkle on top
+                    if (sparkleFreq > 0) {
+                        val sparkEnv = (1.0f - (t / (duration * 0.5f))).coerceIn(0f, 1f)
+                        signal += sin(2.0 * Math.PI * sparkleFreq * t) * 0.12 * sparkEnv
+                    }
+
+                    // Short attack/release ramps remove clicks at beat boundaries
+                    val attack = (t / 0.012f).coerceAtMost(1f)
+                    val release = if (t > duration * 0.85f) {
+                        (1.0f - ((t - duration * 0.85f) / (duration * 0.15f))).coerceIn(0f, 1f)
                     } else 1.0f
-                    
-                    val value = (signal * 32767 * vol * finalEnv).toInt().coerceIn(-32768, 32767)
+
+                    val value = (signal * 32767 * vol * attack * release).toInt().coerceIn(-32768, 32767)
                     samples[i] = value.toShort()
                 }
                 playPcm(samples)
-                index++
+                beat++
                 delay(beatMs - 2)
             }
         }

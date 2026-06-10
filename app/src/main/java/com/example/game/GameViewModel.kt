@@ -281,6 +281,22 @@ class GameViewModel(
             )
         }
         _bubbles.value = initialAmbientBubbles
+
+        // Ambience ticker: keeps the wave clock, bubbles and background life moving
+        // in the menu and game-over screens (the game loop takes over while PLAYING).
+        viewModelScope.launch {
+            var last = System.nanoTime()
+            while (true) {
+                val now = System.nanoTime()
+                val dt = ((now - last) / 1_000_000_000f).coerceAtMost(0.04f)
+                last = now
+                if (_gameScreenState.value != GameScreenState.PLAYING) {
+                    _waveTime.value = (_waveTime.value + dt) % (Math.PI.toFloat() * 2f)
+                    updateParticlesAndBubbles(dt, 40f)
+                }
+                delay(33)
+            }
+        }
     }
 
     fun setPlayerName(name: String) {

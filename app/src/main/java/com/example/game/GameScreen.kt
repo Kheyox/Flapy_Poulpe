@@ -221,6 +221,81 @@ fun GameScreen(
                     )
                 }
 
+                // B2. Distant fish silhouettes drifting across the background.
+                // Integer speed factors keep motion continuous when waveTime wraps at 2π.
+                val twoPi = (Math.PI * 2).toFloat()
+                for (i in 0 until 5) {
+                    val k = i + 1
+                    val progress = ((waveTime * k) % twoPi) / twoPi
+                    val fx = 1150f - progress * 1400f
+                    val fy = 110f + i * 165f + sin(waveTime * 2f + i * 1.7f).toFloat() * 18f
+                    val fishScale = 0.7f + (i % 3) * 0.35f
+                    val silhouette = Color(0xFF0A3D62).copy(alpha = 0.4f)
+                    // Body
+                    drawOval(
+                        color = silhouette,
+                        topLeft = Offset(fx - 22f * fishScale, fy - 9f * fishScale),
+                        size = Size(44f * fishScale, 18f * fishScale)
+                    )
+                    // Tail fin (fish swim right-to-left, tail trails on the right)
+                    val tail = Path().apply {
+                        moveTo(fx + 18f * fishScale, fy)
+                        lineTo(fx + 34f * fishScale, fy - 10f * fishScale)
+                        lineTo(fx + 34f * fishScale, fy + 10f * fishScale)
+                        close()
+                    }
+                    drawPath(tail, silhouette)
+                }
+
+                // B3. Seabed decoration: rocks, starfish and swaying fan corals
+                listOf(
+                    Triple(120f, 985f, 55f),
+                    Triple(420f, 995f, 70f),
+                    Triple(700f, 990f, 48f),
+                    Triple(920f, 998f, 62f)
+                ).forEach { (rx, ry, rr) ->
+                    drawCircle(Color(0xFF14506E).copy(alpha = 0.8f), radius = rr, center = Offset(rx, ry + rr * 0.55f))
+                    drawCircle(Color(0xFF1B6A8F).copy(alpha = 0.5f), radius = rr * 0.55f, center = Offset(rx - rr * 0.3f, ry + rr * 0.35f))
+                }
+
+                // Pink fan corals waving with the tide
+                for (i in 0 until 3) {
+                    val baseX = 270f + i * 280f
+                    val sway = sin(waveTime * 1.5f + i).toFloat() * 5f
+                    for (b in -2..2) {
+                        drawLine(
+                            color = Color(0xFFFF7675).copy(alpha = 0.45f),
+                            start = Offset(baseX, 1008f),
+                            end = Offset(baseX + b * 17f + sway, 945f + kotlin.math.abs(b) * 13f),
+                            strokeWidth = 5.5f,
+                            cap = StrokeCap.Round
+                        )
+                    }
+                }
+
+                // Starfish resting on the seabed
+                listOf(
+                    Offset(185f, 962f) to Color(0xFFFF9F43),
+                    Offset(765f, 968f) to Color(0xFFFF6B6B)
+                ).forEach { (c, starColor) ->
+                    val deg2rad = (Math.PI / 180f).toFloat()
+                    val star = Path().apply {
+                        for (b in 0 until 5) {
+                            val ang = (b * 72f - 90f) * deg2rad
+                            val tipX = c.x + cos(ang) * 16f
+                            val tipY = c.y + sin(ang) * 16f
+                            val innerAng = ang + 36f * deg2rad
+                            val inX = c.x + cos(innerAng) * 7f
+                            val inY = c.y + sin(innerAng) * 7f
+                            if (b == 0) moveTo(tipX, tipY) else lineTo(tipX, tipY)
+                            lineTo(inX, inY)
+                        }
+                        close()
+                    }
+                    drawPath(star, starColor.copy(alpha = 0.85f))
+                    drawCircle(Color.White.copy(alpha = 0.3f), radius = 3f, center = c)
+                }
+
                 // C. Procedural Waving Seaweed at bottom
                 for (i in 0..11) {
                     val baseX = i * 92f + 18f
@@ -286,7 +361,9 @@ fun GameScreen(
 
                 // D. Obstacle Coral Columns
                 obstacles.forEach { obstacle ->
-                    val isOrange = (obstacle.gapY.toInt() % 2 == 0)
+                    // Color picked from the SPAWN position (initialGapY): bobbing corals
+                    // move gapY every frame, which used to make them flicker orange/teal.
+                    val isOrange = (obstacle.initialGapY.toInt() % 2 == 0)
                     
                     val coralColor1 = if (isOrange) Color(0xFFFF6B6B) else Color(0xFF00ADB5)
                     val coralColor2 = if (isOrange) Color(0xFFEE5253) else Color(0xFF00565B)
