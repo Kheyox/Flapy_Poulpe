@@ -109,9 +109,8 @@ fun GameScreen(
     val updateManager = remember { UpdateManager(context) }
     val updateState by updateManager.updateState.collectAsStateWithLifecycle()
 
-    var ownerInput by remember { mutableStateOf(updateManager.githubOwner) }
-    var repoInput by remember { mutableStateOf(updateManager.githubRepo) }
-    var showRepoConfig by remember { mutableStateOf(false) }
+    // Popup shown once per discovered release; "Plus tard" hides it until the next one.
+    var dismissedUpdateTag by remember { mutableStateOf<String?>(null) }
 
     // Seamlessly map sliding volume inputs onto physical Tone Synthesizer properties in real time
     LaunchedEffect(musicVolume) {
@@ -121,9 +120,9 @@ fun GameScreen(
         SoundManager.sfxVolume = sfxVolume
     }
 
-    // Proactively query updates in background when app is launched
+    // Watch the GitHub repo: check at launch, then re-check periodically in background
     LaunchedEffect(Unit) {
-        updateManager.checkUpdates()
+        updateManager.watchForUpdates()
     }
 
     Box(
@@ -1348,8 +1347,7 @@ fun GameScreen(
                                                     fontWeight = FontWeight.Medium
                                                 )
                                                 Text(
-                                                    text = "Dépôt : ${updateManager.githubOwner}/${updateManager.githubRepo}",
-                                                    modifier = Modifier.clickable { showRepoConfig = !showRepoConfig },
+                                                    text = "Les mises à jour sont vérifiées automatiquement",
                                                     color = Color.White.copy(alpha = 0.5f),
                                                     fontSize = 10.sp
                                                 )
@@ -1368,63 +1366,6 @@ fun GameScreen(
                                         }
 
                                         Spacer(modifier = Modifier.height(12.dp))
-
-                                        // Display states
-                                        if (showRepoConfig) {
-                                             Column(
-                                                 modifier = Modifier
-                                                     .fillMaxWidth()
-                                                     .padding(vertical = 8.dp)
-                                                     .clip(RoundedCornerShape(8.dp))
-                                                     .background(Color.White.copy(alpha = 0.05f))
-                                                     .padding(8.dp)
-                                             ) {
-                                                 Text(
-                                                     text = "Configuration du dépôt (live) :",
-                                                     color = Color(0xFF55E6C1),
-                                                     fontSize = 11.sp,
-                                                     fontWeight = FontWeight.Bold,
-                                                     modifier = Modifier.padding(bottom = 6.dp)
-                                                 )
-
-                                                 OutlinedTextField(
-                                                     value = ownerInput,
-                                                     onValueChange = {
-                                                         ownerInput = it
-                                                         updateManager.githubOwner = it
-                                                     },
-                                                     label = { Text("Propriétaire (ex: Kheyox)", color = Color.White.copy(alpha = 0.5f), fontSize = 10.sp) },
-                                                     textStyle = TextStyle(color = Color.White, fontSize = 12.sp),
-                                                     modifier = Modifier.fillMaxWidth(),
-                                                     singleLine = true,
-                                                     colors = OutlinedTextFieldDefaults.colors(
-                                                         focusedBorderColor = Color(0xFF55E6C1),
-                                                         unfocusedBorderColor = Color.White.copy(alpha = 0.2f),
-                                                         focusedLabelColor = Color(0xFF55E6C1)
-                                                     )
-                                                 )
-
-                                                 Spacer(modifier = Modifier.height(6.dp))
-
-                                                 OutlinedTextField(
-                                                     value = repoInput,
-                                                     onValueChange = {
-                                                         repoInput = it
-                                                         updateManager.githubRepo = it
-                                                     },
-                                                     label = { Text("Dépôt (ex: Flapy_Poulpe)", color = Color.White.copy(alpha = 0.5f), fontSize = 10.sp) },
-                                                     textStyle = TextStyle(color = Color.White, fontSize = 12.sp),
-                                                     modifier = Modifier.fillMaxWidth(),
-                                                     singleLine = true,
-                                                     colors = OutlinedTextFieldDefaults.colors(
-                                                         focusedBorderColor = Color(0xFF55E6C1),
-                                                         unfocusedBorderColor = Color.White.copy(alpha = 0.2f),
-                                                         focusedLabelColor = Color(0xFF55E6C1)
-                                                     )
-                                                 )
-                                             }
-                                             Spacer(modifier = Modifier.height(8.dp))
-                                         }
 
                                          when (val stateVal = updateState) {
                                             is UpdateState.Checking -> {
@@ -1782,6 +1723,60 @@ fun GameScreen(
                     }
                 }
             }
+        }
+
+        // --- UPDATE PROPOSAL POPUP ---
+        // The app watches the GitHub repo in background; when a new release is found,
+        // this dialog proposes the update (outside of an active run, never mid-game).
+        val availableUpdate = updateState as? UpdateState.UpdateAvailable
+        if (availableUpdate != null &&
+            state != GameScreenState.PLAYING &&
+            dismissedUpdateTag != availableUpdate.tagName
+        ) {
+            AlertDialog(
+                onDismissRequest = { dismissedUpdateTag = availableUpdate.tagName },
+                containerColor = Color(0xFF130F40),
+                title = {
+                    Text(
+                        text = "Mise à jour disponible !",
+                        color = Color(0xFFFF9F43),
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                text = {
+                    Column {
+                        Text(
+                            text = "Version v${availableUpdate.tagName} (installée : v${updateManager.currentVersionName})",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = availableUpdate.changelog,
+                            color = Color.White.copy(alpha = 0.8f),
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            dismissedUpdateTag = availableUpdate.tagName
+                            updateManager.downloadAndInstall(availableUpdate.downloadUrl)
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF55E6C1))
+                    ) {
+                        Text("METTRE À JOUR", color = Color(0xFF0F2027), fontWeight = FontWeight.Black, fontSize = 12.sp)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { dismissedUpdateTag = availableUpdate.tagName }) {
+                        Text("Plus tard", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                    }
+                }
+            )
         }
     }
 }

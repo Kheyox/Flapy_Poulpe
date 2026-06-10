@@ -217,7 +217,7 @@ class GameViewModel(
         if (_gameScreenState.value != GameScreenState.PLAYING) return
         
         // Buoyancy lift force impulse (underwater version of jump!)
-        velocityY = -390f
+        velocityY = -360f
         _velocityY.value = velocityY
         
         SoundManager.playSwim() // Play low-latency bubble bloop!
@@ -263,7 +263,7 @@ class GameViewModel(
 
                 // 3. Obstacle Spawning frequency scales with score (faster spawn limits max wait time)
                 obstacleSpawnAccumulator += cappedDt
-                val currentInterval = (2.4f - (_score.value * 0.015f)).coerceAtLeast(1.4f)
+                val currentInterval = (2.8f - (_score.value * 0.012f)).coerceAtLeast(1.7f)
                 if (obstacleSpawnAccumulator >= currentInterval) {
                     spawnObstacle()
                     obstacleSpawnAccumulator = 0f
@@ -284,7 +284,7 @@ class GameViewModel(
         if (_slowMoTime.value > 0f) _slowMoTime.value = (_slowMoTime.value - dt).coerceAtLeast(0f)
 
         // 1. Apply gravity (buoyancy is weaker than full air gravity)
-        velocityY += 1050f * dt
+        velocityY += 900f * dt
         _velocityY.value = velocityY
         val nextOctopusY = _octopusY.value + velocityY * dt
         _octopusY.value = nextOctopusY
@@ -303,9 +303,9 @@ class GameViewModel(
         }
 
         // 3. Move obstacles & detect collisions
-        val speedMultiplier = (1.0f + (_score.value * 0.018f)).coerceAtMost(1.65f)
+        val speedMultiplier = (1.0f + (_score.value * 0.012f)).coerceAtMost(1.45f)
         // Slow-motion power-up reduces scroll speed while active
-        val currentSpeed = 220f * speedMultiplier * (if (_slowMoTime.value > 0f) 0.55f else 1f)
+        val currentSpeed = 205f * speedMultiplier * (if (_slowMoTime.value > 0f) 0.55f else 1f)
 
         val currentObstacles = _obstacles.value
         val nextObstacles = mutableListOf<CoralObstacle>()
@@ -438,18 +438,18 @@ class GameViewModel(
 
     private fun spawnObstacle() {
         val gapY = Random.nextFloat() * 480f + 260f // center centered between 260 and 740
-        val defaultGapHeight = 270f
+        val defaultGapHeight = 310f
         // Reduce gap size slightly over time for difficulty tuning
-        val currentGapHeight = (defaultGapHeight - (_score.value * 2f)).coerceAtLeast(190f)
+        val currentGapHeight = (defaultGapHeight - (_score.value * 1.5f)).coerceAtLeast(235f)
 
         // Escalate difficulty: introduce moving/bobbing corals as the score increases!
-        val bobRange = if (_score.value >= 4) {
-            (Random.nextFloat() * (_score.value * 2.5f)).coerceAtMost(90f) // Up to 90px bobbing oscillation
+        val bobRange = if (_score.value >= 10) {
+            (Random.nextFloat() * (_score.value * 1.8f)).coerceAtMost(60f) // Up to 60px bobbing oscillation
         } else {
             0f
         }
         val bobSpeed = if (bobRange > 0f) {
-            Random.nextFloat() * 1.5f + 0.8f
+            Random.nextFloat() * 1.1f + 0.6f
         } else {
             0f
         }

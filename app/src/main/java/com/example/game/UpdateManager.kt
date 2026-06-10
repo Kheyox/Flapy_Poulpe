@@ -33,9 +33,14 @@ class UpdateManager(private val context: Context) {
     private val client = OkHttpClient()
     private val scope = CoroutineScope(Dispatchers.IO)
 
-    // Configurable owner and repo (defaults point to this project's actual GitHub repo)
-    var githubOwner = "Kheyox"
-    var githubRepo = "Flapy_Poulpe"
+    companion object {
+        // The app always watches this project's official GitHub repo.
+        const val GITHUB_OWNER = "Kheyox"
+        const val GITHUB_REPO = "Flapy_Poulpe"
+
+        // Background re-check interval while the app is open.
+        const val WATCH_INTERVAL_MS = 30L * 60L * 1000L
+    }
 
     /** The versionName baked into the currently installed APK (e.g. "1.0.42"). */
     val currentVersionName: String = try {
@@ -44,13 +49,25 @@ class UpdateManager(private val context: Context) {
         "1.0"
     }
 
-    fun checkUpdates() {
-        _updateState.value = UpdateState.Checking
+    /**
+     * Checks GitHub once at startup, then keeps re-checking periodically while
+     * the app is open so a newly published release is proposed automatically.
+     */
+    suspend fun watchForUpdates() {
+        while (true) {
+            // Silent in the background: only an actual update interrupts the player.
+            checkUpdates(silent = updateState.value !is UpdateState.Idle)
+            kotlinx.coroutines.delay(WATCH_INTERVAL_MS)
+        }
+    }
+
+    fun checkUpdates(silent: Boolean = false) {
+        if (!silent) _updateState.value = UpdateState.Checking
         scope.launch {
             try {
                 val currentVersion = currentVersionName
 
-                val url = "https://api.github.com/repos/$githubOwner/$githubRepo/releases/latest"
+                val url = "https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPO/releases/latest"
                 val request = Request.Builder()
                     .url(url)
                     .header("Accept", "application/vnd.github+json")
@@ -63,13 +80,13 @@ class UpdateManager(private val context: Context) {
                         } else {
                             "Impossible de se connecter à GitHub (${response.code})"
                         }
-                        _updateState.value = UpdateState.Error(errMsg)
+                        if (!silent) _updateState.value = UpdateState.Error(errMsg)
                         return@launch
                     }
 
                     val responseBody = response.body?.string() ?: ""
                     if (responseBody.isEmpty()) {
-                        _updateState.value = UpdateState.Error("Réponse GitHub vide")
+                        if (!silent) _updateState.value = UpdateState.Error("Réponse GitHub vide")
                         return@launch
                     }
 
@@ -96,7 +113,7 @@ class UpdateManager(private val context: Context) {
 
                     if (downloadUrl.isEmpty()) {
                         // fallback to html_url release page if no APK built as asset
-                        downloadUrl = json.optString("html_url", "https://github.com/$githubOwner/$githubRepo/releases")
+                        downloadUrl = json.optString("html_url", "https://github.com/$GITHUB_OWNER/$GITHUB_REPO/releases")
                     }
 
                     // Compare tag names (e.g. 1.1 vs 1.0)
@@ -108,12 +125,12 @@ class UpdateManager(private val context: Context) {
                             size = sizeBytes
                         )
                     } else {
-                        _updateState.value = UpdateState.NoUpdate
+                        if (!silent) _updateState.value = UpdateState.NoUpdate
                     }
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
-                _updateState.value = UpdateState.Error("Erreur de vérification : ${e.localizedMessage}")
+                if (!silent) _updateState.value = UpdateState.Error("Erreur de vérification : ${e.localizedMessage}")
             }
         }
     }
