@@ -21,8 +21,30 @@ import kotlin.random.Random
 enum class GameScreenState {
     MENU,
     PLAYING,
+    PAUSED,
     GAME_OVER
 }
+
+/** A permanent trophy: unlocked once, pays a pearl reward. */
+data class Achievement(
+    val id: String,
+    val emoji: String,
+    val title: String,
+    val description: String,
+    val reward: Int
+)
+
+val ALL_ACHIEVEMENTS = listOf(
+    Achievement("first_dive", "🌊", "Première Plongée", "Terminer une partie", 25),
+    Achievement("ten_games", "🎮", "Habitué des Abysses", "Jouer 10 parties", 50),
+    Achievement("fifty_games", "🏊", "Marathonien des Mers", "Jouer 50 parties", 150),
+    Achievement("score_30", "⭐", "Explorateur Confirmé", "Atteindre 30 points", 75),
+    Achievement("score_60", "🌌", "Maître des Abysses", "Atteindre 60 points et survivre à l'obscurité", 200),
+    Achievement("combo_5", "🔥", "Enchaînement Parfait", "Réaliser un combo de perles x5", 100),
+    Achievement("pearls_500", "🦪", "Trésor Vivant", "Collecter 500 perles au total", 150),
+    Achievement("level_5", "🎯", "Stratège", "Réussir le niveau 5", 100),
+    Achievement("level_10", "👑", "Légende de l'Océan", "Réussir le niveau 10", 300)
+)
 
 enum class GameMode { INFINITE, LEVELS }
 
@@ -226,6 +248,19 @@ class GameViewModel(
     private val _reviveAvailable = MutableStateFlow(true)
     val reviveAvailable: StateFlow<Boolean> = _reviveAvailable.asStateFlow()
 
+    // --- Achievements ---
+    private val _unlockedAchievements = MutableStateFlow<Set<String>>(emptySet())
+    val unlockedAchievements: StateFlow<Set<String>> = _unlockedAchievements.asStateFlow()
+
+    // Trophies earned during the current run, shown on the game-over screen
+    private val _newAchievements = MutableStateFlow<List<Achievement>>(emptyList())
+    val newAchievements: StateFlow<List<Achievement>> = _newAchievements.asStateFlow()
+
+    private var totalGames = 0
+    private var totalPearlsCollected = 0
+    private var gamesCountedThisRun = false
+    private var pearlsStatCounted = 0
+
     // Per-run stats feeding the daily mission checks
     private var runPearls = 0
     private var runMaxCombo = 0
@@ -279,6 +314,9 @@ class GameViewModel(
         _maxUnlockedLevel.value = settings.maxUnlockedLevel
         _pearlWallet.value = settings.pearlBalance
         _purchasedCosmetics.value = settings.purchasedCosmetics
+        _unlockedAchievements.value = settings.unlockedAchievements
+        totalGames = settings.totalGames
+        totalPearlsCollected = settings.totalPearlsCollected
 
         // Restore persisted cosmetic choices and player name
         settings.skinName?.let { saved ->
@@ -432,6 +470,9 @@ class GameViewModel(
         pearlsBankedThisRun = 0
         _runPearlsEarned.value = 0
         _reviveAvailable.value = true
+        _newAchievements.value = emptyList()
+        gamesCountedThisRun = false
+        pearlsStatCounted = 0
         _gameScreenState.value = GameScreenState.PLAYING
 
         launchGameLoop()
@@ -682,9 +723,7 @@ class GameViewModel(
         _gameScreenState.value = GameScreenState.GAME_OVER
         gameJob?.cancel()
         SoundManager.playCollect()
-        evaluateDailyMission()
-        bankRunPearls()
-        saveHighScore()
+        finishRun()
     }
 
     /** Returns true if the octopus survives a crash (invulnerable or has a shield). */
@@ -859,14 +898,80 @@ class GameViewModel(
         _gameScreenState.value = GameScreenState.GAME_OVER
         gameJob?.cancel()
         SoundManager.playCrash() // Play impact crash synthesizer!
-
-        // The score is recorded automatically — no manual save button needed.
-        evaluateDailyMission()
-        bankRunPearls()
-        saveHighScore()
+        finishRun()
 
         // Screen shake of particles on impact
         triggerCrashExplosion(220f, _octopusY.value)
+    }
+
+    /** Shared end-of-run pipeline: missions, lifetime stats, trophies, pearls, score. */
+    private fun finishRun() {
+        evaluateDailyMission()
+        updateLifetimeStats()
+        evaluateAchievements()
+        bankRunPearls()
+        saveHighScore()
+    }
+
+    private fun updateLifetimeStats() {
+        // A revived run passes through here twice; count it once.
+        if (!gamesCountedThisRun) {
+            gamesCountedThisRun = true
+            totalGames += 1
+            settings.totalGames = totalGames
+        }
+        val newPearls = runPearls - pearlsStatCounted
+        if (newPearls > 0) {
+            totalPearlsCollected += newPearls
+            pearlsStatCounted = runPearls
+            settings.totalPearlsCollected = totalPearlsCollected
+        }
+    }
+
+    /** Unlocks every newly satisfied achievement and credits its pearl reward. */
+    private fun evaluateAchievements() {
+        val unlocked = _unlockedAchievements.value
+        val newly = ALL_ACHIEVEMENTS.filter { a ->
+            a.id !in unlocked && when (a.id) {
+                "first_dive" -> true
+                "ten_games" -> totalGames >= 10
+                "fifty_games" -> totalGames >= 50
+                "score_30" -> _score.value >= 30
+                "score_60" -> _score.value >= 60
+                "combo_5" -> runMaxCombo >= 5
+                "pearls_500" -> totalPearlsCollected >= 500
+                "level_5" -> _levelCompleted.value && _currentLevel.value >= 5
+                "level_10" -> _levelCompleted.value && _currentLevel.value >= 10
+                else -> false
+            }
+        }
+        if (newly.isNotEmpty()) {
+            _unlockedAchievements.value = unlocked + newly.map { it.id }
+            settings.unlockedAchievements = _unlockedAchievements.value
+            _pearlWallet.value += newly.sumOf { it.reward }
+            settings.pearlBalance = _pearlWallet.value
+            _newAchievements.value = _newAchievements.value + newly
+        }
+    }
+
+    fun pauseGame() {
+        if (_gameScreenState.value != GameScreenState.PLAYING) return
+        _gameScreenState.value = GameScreenState.PAUSED
+        gameJob?.cancel()
+    }
+
+    fun resumeGame() {
+        if (_gameScreenState.value != GameScreenState.PAUSED) return
+        _gameScreenState.value = GameScreenState.PLAYING
+        launchGameLoop()
+    }
+
+    /** Abandon a paused run: the score and pearls earned so far still count. */
+    fun quitRun() {
+        if (_gameScreenState.value != GameScreenState.PAUSED) return
+        _gameScreenState.value = GameScreenState.GAME_OVER
+        gameJob?.cancel()
+        finishRun()
     }
 
     private fun updateParticlesAndBubbles(dt: Float, currentSpeed: Float) {

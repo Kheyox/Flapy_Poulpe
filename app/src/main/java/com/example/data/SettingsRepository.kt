@@ -47,6 +47,20 @@ class SettingsRepository(context: Context) {
         get() = prefs.getStringSet(KEY_PURCHASED, emptySet()) ?: emptySet()
         set(value) { prefs.edit().putStringSet(KEY_PURCHASED, value).apply() }
 
+    // Lifetime stats feeding the achievements system
+    var totalGames: Int
+        get() = prefs.getInt(KEY_TOTAL_GAMES, 0)
+        set(value) { prefs.edit().putInt(KEY_TOTAL_GAMES, value).apply() }
+
+    var totalPearlsCollected: Int
+        get() = prefs.getInt(KEY_TOTAL_PEARLS, 0)
+        set(value) { prefs.edit().putInt(KEY_TOTAL_PEARLS, value).apply() }
+
+    /** Ids of permanently unlocked achievements. */
+    var unlockedAchievements: Set<String>
+        get() = prefs.getStringSet(KEY_ACHIEVEMENTS, emptySet()) ?: emptySet()
+        set(value) { prefs.edit().putStringSet(KEY_ACHIEVEMENTS, value).apply() }
+
     private companion object {
         const val KEY_SKIN = "skin"
         const val KEY_ACCESSORY = "accessory"
@@ -56,5 +70,8 @@ class SettingsRepository(context: Context) {
         const val KEY_MAX_LEVEL = "max_unlocked_level"
         const val KEY_PEARLS = "pearl_balance"
         const val KEY_PURCHASED = "purchased_cosmetics"
+        const val KEY_TOTAL_GAMES = "total_games"
+        const val KEY_TOTAL_PEARLS = "total_pearls_collected"
+        const val KEY_ACHIEVEMENTS = "unlocked_achievements"
     }
 }

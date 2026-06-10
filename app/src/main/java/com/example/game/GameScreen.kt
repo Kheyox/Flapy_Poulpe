@@ -118,6 +118,8 @@ fun GameScreen(
     val purchasedCosmetics by viewModel.purchasedCosmetics.collectAsStateWithLifecycle()
     val runPearlsEarned by viewModel.runPearlsEarned.collectAsStateWithLifecycle()
     val reviveAvailable by viewModel.reviveAvailable.collectAsStateWithLifecycle()
+    val unlockedAchievements by viewModel.unlockedAchievements.collectAsStateWithLifecycle()
+    val newAchievements by viewModel.newAchievements.collectAsStateWithLifecycle()
 
     val interactionSource = remember { MutableInteractionSource() }
 
@@ -1085,6 +1087,21 @@ fun GameScreen(
                     }
                 }
 
+                // Pause button (below the best-score block, top right)
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 64.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.12f))
+                        .border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape)
+                        .clickable { viewModel.pauseGame() }
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                        .testTag("pause_button")
+                ) {
+                    Text(text = "⏸", color = Color.White, fontSize = 16.sp)
+                }
+
                 // Touch Interaction Hint (from the HTML)
                 if (score < 2) {
                     val infiniteTransition = rememberInfiniteTransition(label = "hint_pulse")
@@ -1190,20 +1207,22 @@ fun GameScreen(
                     ) {
                         when (menuTab) {
                             "home" -> {
+                                // Scrollable so secondary content can never push the play button away
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(24.dp))
                                         .background(Color.Black.copy(alpha = 0.45f))
                                         .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(24.dp))
-                                        .padding(20.dp),
+                                        .verticalScroll(rememberScrollState())
+                                        .padding(16.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                     verticalArrangement = Arrangement.Center
                                 ) {
-                                    // Cute pulsing background card preview of the selected Octopus Skin!
+                                    // Compact preview of the selected Octopus Skin
                                     Box(
                                         modifier = Modifier
-                                            .size(80.dp)
+                                            .size(52.dp)
                                             .clip(CircleShape)
                                             .background(
                                                 Brush.radialGradient(
@@ -1214,7 +1233,7 @@ fun GameScreen(
                                     ) {
                                         Box(
                                             modifier = Modifier
-                                                .size(38.dp)
+                                                .size(26.dp)
                                                 .clip(CircleShape)
                                                 .background(
                                                     Brush.linearGradient(
@@ -1224,8 +1243,8 @@ fun GameScreen(
                                                 .border(1.5.dp, Color.White.copy(alpha = 0.4f), CircleShape)
                                         )
                                     }
-                                    
-                                    Spacer(modifier = Modifier.height(14.dp))
+
+                                    Spacer(modifier = Modifier.height(8.dp))
 
                                     // Touch Name Field
                                     OutlinedTextField(
@@ -1245,8 +1264,37 @@ fun GameScreen(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .testTag("player_name_input")
-                                            .padding(bottom = 16.dp)
+                                            .padding(bottom = 12.dp)
                                     )
+
+                                    // PLAY BUTTON — always right under the name, above the fold
+                                    Button(
+                                        onClick = { viewModel.startGame() },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF55E6C1)),
+                                        shape = CircleShape,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(56.dp)
+                                            .testTag("start_game_button")
+                                            .border(1.5.dp, Color.White.copy(alpha = 0.3f), CircleShape),
+                                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.PlayArrow,
+                                            contentDescription = "Play icon",
+                                            tint = Color(0xFF0F2027)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "LANCER L'EXPLORATION",
+                                            color = Color(0xFF0F2027),
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Black,
+                                            letterSpacing = 1.sp
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(14.dp))
 
                                     // Pearl wallet chip — tap habits: players see their currency grow
                                     Row(
@@ -1462,41 +1510,17 @@ fun GameScreen(
                                         }
                                     }
 
-                                    // Lancer l'exploration Play Button
-                                    Button(
-                                        onClick = { viewModel.startGame() },
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF55E6C1)),
-                                        shape = CircleShape,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(56.dp)
-                                            .testTag("start_game_button")
-                                            .border(1.5.dp, Color.White.copy(alpha = 0.3f), CircleShape),
-                                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 8.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.PlayArrow,
-                                            contentDescription = "Play icon",
-                                            tint = Color(0xFF0F2027)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = "LANCER L'EXPLORATION",
-                                            color = Color(0xFF0F2027),
-                                            fontSize = 14.sp,
-                                            fontWeight = FontWeight.Black,
-                                            letterSpacing = 1.sp
-                                        )
-                                    }
                                 }
                             }
                             "ranks" -> {
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
+                                        .fillMaxHeight(0.85f)
                                         .clip(RoundedCornerShape(24.dp))
                                         .background(Color.Black.copy(alpha = 0.45f))
                                         .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(24.dp))
+                                        .verticalScroll(rememberScrollState())
                                         .padding(16.dp)
                                 ) {
                                     Row(
@@ -1536,11 +1560,11 @@ fun GameScreen(
                                             )
                                         }
                                     } else {
-                                        LazyColumn(
+                                        Column(
                                             modifier = Modifier.fillMaxWidth(),
                                             verticalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
-                                            itemsIndexed(topScores) { index, scoreItem ->
+                                            topScores.forEachIndexed { index, scoreItem ->
                                                 val medalTint = when (index) {
                                                     0 -> Color(0xFFFFD700) // Gold
                                                     1 -> Color(0xFFC0C0C0) // Silver
@@ -1592,6 +1616,74 @@ fun GameScreen(
                                                     }
                                                 }
                                             }
+                                        }
+                                    }
+
+                                    // --- ACHIEVEMENTS / TROPHIES ---
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(vertical = 14.dp),
+                                        color = Color.White.copy(alpha = 0.15f)
+                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center
+                                    ) {
+                                        Text(text = "🏆", fontSize = 17.sp)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "SUCCÈS  (${unlockedAchievements.size}/${ALL_ACHIEVEMENTS.size})",
+                                            color = Color.White,
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            letterSpacing = 2.sp
+                                        )
+                                    }
+                                    ALL_ACHIEVEMENTS.forEach { achievement ->
+                                        val isUnlocked = achievement.id in unlockedAchievements
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 3.dp)
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(
+                                                    if (isUnlocked) Color(0xFFFFD700).copy(alpha = 0.08f)
+                                                    else Color.White.copy(alpha = 0.03f)
+                                                )
+                                                .border(
+                                                    1.dp,
+                                                    if (isUnlocked) Color(0xFFFFD700).copy(alpha = 0.3f)
+                                                    else Color.White.copy(alpha = 0.05f),
+                                                    RoundedCornerShape(10.dp)
+                                                )
+                                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = if (isUnlocked) achievement.emoji else "🔒",
+                                                fontSize = 18.sp
+                                            )
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = achievement.title,
+                                                    color = if (isUnlocked) Color(0xFFFFD700) else Color.White.copy(alpha = 0.55f),
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                Text(
+                                                    text = achievement.description,
+                                                    color = Color.White.copy(alpha = if (isUnlocked) 0.7f else 0.4f),
+                                                    fontSize = 10.sp,
+                                                    lineHeight = 13.sp
+                                                )
+                                            }
+                                            Text(
+                                                text = if (isUnlocked) "✓" else "+${achievement.reward} 🦪",
+                                                color = if (isUnlocked) Color(0xFF2ecc71) else Color(0xFFFFD700).copy(alpha = 0.6f),
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Black
+                                            )
                                         }
                                     }
                                 }
@@ -2087,7 +2179,7 @@ fun GameScreen(
                         Triple("home", Icons.Default.Home, "Accueil"),
                         Triple("ranks", Icons.Default.Star, "Rangs"),
                         Triple("skins", Icons.Default.Face, "Skins"),
-                        Triple("audio", Icons.Default.Settings, "Réglages")
+                        Triple("audio", Icons.Default.Settings, "Options")
                     )
 
                     tabs.forEach { (tabId, icon, label) ->
@@ -2117,9 +2209,92 @@ fun GameScreen(
                                 text = label,
                                 color = if (isSelected) Color(0xFF55E6C1) else Color.White.copy(alpha = 0.6f),
                                 fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                softWrap = false
                             )
                         }
+                    }
+                }
+            }
+        }
+
+        // --- 3b. PAUSE OVERLAY ---
+        AnimatedVisibility(
+            visible = state == GameScreenState.PAUSED,
+            enter = fadeIn(animationSpec = tween(200)),
+            exit = fadeOut(animationSpec = tween(200))
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.7f))
+                    .systemBarsPadding(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth(0.8f)
+                        .clip(RoundedCornerShape(28.dp))
+                        .background(Color(0xFF0F2027).copy(alpha = 0.95f))
+                        .border(1.5.dp, Color(0xFF1B9CFC).copy(alpha = 0.5f), RoundedCornerShape(28.dp))
+                        .padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "⏸ PAUSE",
+                        color = Color(0xFF55E6C1),
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 2.sp
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Score actuel : $score",
+                        color = Color.White.copy(alpha = 0.7f),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Button(
+                        onClick = { viewModel.resumeGame() },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF55E6C1)),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp)
+                            .testTag("resume_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = "Reprendre",
+                            tint = Color(0xFF0F2027)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "REPRENDRE",
+                            color = Color(0xFF0F2027),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 1.sp
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedButton(
+                        onClick = { viewModel.quitRun() },
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.3f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(46.dp)
+                    ) {
+                        Text(
+                            text = "ABANDONNER LA PARTIE",
+                            color = Color.White.copy(alpha = 0.85f),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }
@@ -2273,6 +2448,28 @@ fun GameScreen(
                             )
                         }
                         Spacer(modifier = Modifier.height(10.dp))
+                    }
+
+                    // Trophies unlocked during this run
+                    newAchievements.forEach { achievement ->
+                        Row(
+                            modifier = Modifier
+                                .padding(bottom = 6.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0xFFFFD700).copy(alpha = 0.12f))
+                                .border(1.dp, Color(0xFFFFD700).copy(alpha = 0.45f), RoundedCornerShape(12.dp))
+                                .padding(horizontal = 14.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(text = achievement.emoji, fontSize = 16.sp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Succès : ${achievement.title}  +${achievement.reward} 🦪",
+                                color = Color(0xFFFFD700),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
 
                     // The score is saved automatically when the run ends
