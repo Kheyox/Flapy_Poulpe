@@ -131,6 +131,11 @@ class GameViewModel(
 
         // Levels mode: 10 levels, level n is cleared at n*10 points.
         const val MAX_LEVEL = 10
+
+        // Pearl economy: cost of resuming a crashed run, and end-of-run bonuses.
+        const val REVIVE_COST = 50
+        const val MISSION_PEARL_BONUS = 100
+        const val LEVEL_PEARL_BONUS = 20
     }
 
     private val _gameScreenState = MutableStateFlow(GameScreenState.MENU)
@@ -208,11 +213,25 @@ class GameViewModel(
 
     val dailyMission: DailyMission = ALL_MISSIONS[dayKey().hashCode().mod(ALL_MISSIONS.size)]
 
+    // --- Pearl economy ---
+    private val _pearlWallet = MutableStateFlow(0)
+    val pearlWallet: StateFlow<Int> = _pearlWallet.asStateFlow()
+
+    private val _purchasedCosmetics = MutableStateFlow<Set<String>>(emptySet())
+    val purchasedCosmetics: StateFlow<Set<String>> = _purchasedCosmetics.asStateFlow()
+
+    private val _runPearlsEarned = MutableStateFlow(0)
+    val runPearlsEarned: StateFlow<Int> = _runPearlsEarned.asStateFlow()
+
+    private val _reviveAvailable = MutableStateFlow(true)
+    val reviveAvailable: StateFlow<Boolean> = _reviveAvailable.asStateFlow()
+
     // Per-run stats feeding the daily mission checks
     private var runPearls = 0
     private var runMaxCombo = 0
     private var runPowerUps = 0
     private var runShieldPicked = false
+    private var pearlsBankedThisRun = 0
 
     private val _bubbles = MutableStateFlow<List<Bubble>>(emptyList())
     val bubbles: StateFlow<List<Bubble>> = _bubbles.asStateFlow()
@@ -254,10 +273,12 @@ class GameViewModel(
     private var gameJob: Job? = null
 
     init {
-        // Restore progression (daily mission status, unlocked levels)
+        // Restore progression (daily mission status, unlocked levels, pearl economy)
         _missionCompletedToday.value = settings.missionLastCompletedDay == dayKey()
         _missionsCompletedCount.value = settings.missionsCompletedCount
         _maxUnlockedLevel.value = settings.maxUnlockedLevel
+        _pearlWallet.value = settings.pearlBalance
+        _purchasedCosmetics.value = settings.purchasedCosmetics
 
         // Restore persisted cosmetic choices and player name
         settings.skinName?.let { saved ->
@@ -306,13 +327,37 @@ class GameViewModel(
         }
     }
 
-    /** Cosmetics unlock with the best score; the pirate patch is the mission reward. */
+    /**
+     * Cosmetics unlock with the best score, except shop items (price > 0) which
+     * must be bought with pearls, and the pirate patch (daily-mission reward).
+     */
     fun isSkinUnlocked(skin: OctopusSkin): Boolean =
-        (highestScore.value ?: 0) >= skin.requiredScore
+        if (skin.price > 0) skin.name in _purchasedCosmetics.value
+        else (highestScore.value ?: 0) >= skin.requiredScore
 
-    fun isAccessoryUnlocked(accessory: OctopusAccessory): Boolean =
-        if (accessory.missionReward) _missionsCompletedCount.value > 0
-        else (highestScore.value ?: 0) >= accessory.requiredScore
+    fun isAccessoryUnlocked(accessory: OctopusAccessory): Boolean = when {
+        accessory.missionReward -> _missionsCompletedCount.value > 0
+        accessory.price > 0 -> accessory.name in _purchasedCosmetics.value
+        else -> (highestScore.value ?: 0) >= accessory.requiredScore
+    }
+
+    private fun purchase(price: Int, enumName: String): Boolean {
+        if (price <= 0 || enumName in _purchasedCosmetics.value) return false
+        if (_pearlWallet.value < price) return false
+        _pearlWallet.value -= price
+        _purchasedCosmetics.value = _purchasedCosmetics.value + enumName
+        settings.pearlBalance = _pearlWallet.value
+        settings.purchasedCosmetics = _purchasedCosmetics.value
+        return true
+    }
+
+    fun buySkin(skin: OctopusSkin) {
+        if (purchase(skin.price, skin.name)) setSkin(skin) // auto-equip on purchase
+    }
+
+    fun buyAccessory(accessory: OctopusAccessory) {
+        if (purchase(accessory.price, accessory.name)) setAccessory(accessory)
+    }
 
     fun setSkin(skin: OctopusSkin) {
         if (!isSkinUnlocked(skin)) return
@@ -384,8 +429,15 @@ class GameViewModel(
         runMaxCombo = 0
         runPowerUps = 0
         runShieldPicked = false
+        pearlsBankedThisRun = 0
+        _runPearlsEarned.value = 0
+        _reviveAvailable.value = true
         _gameScreenState.value = GameScreenState.PLAYING
 
+        launchGameLoop()
+    }
+
+    private fun launchGameLoop() {
         gameJob?.cancel()
         gameJob = viewModelScope.launch {
             var lastTime = System.nanoTime()
@@ -414,6 +466,33 @@ class GameViewModel(
                 delay(12) // higher precision animation tick (~80fps loop capped, smooth)
             }
         }
+    }
+
+    /**
+     * Second chance: spend pearls to resume the run right where it crashed.
+     * Hazards are swept away and a short invulnerability lets the player breathe.
+     */
+    fun revive() {
+        if (_gameScreenState.value != GameScreenState.GAME_OVER) return
+        if (_levelCompleted.value || !_reviveAvailable.value) return
+        if (_pearlWallet.value < REVIVE_COST) return
+
+        _pearlWallet.value -= REVIVE_COST
+        settings.pearlBalance = _pearlWallet.value
+        _reviveAvailable.value = false
+
+        _obstacles.value = emptyList()
+        _jellyfish.value = emptyList()
+        _currents.value = emptyList()
+        _octopusY.value = 500f
+        velocityY = -100f
+        _velocityY.value = velocityY
+        invulnTime = 2f
+        _invuln.value = true
+        // Allow the (higher) final score of the resumed run to be recorded too
+        _highScoreSaved.value = false
+        _gameScreenState.value = GameScreenState.PLAYING
+        launchGameLoop()
     }
 
     private fun updateGame(dt: Float) {
@@ -604,6 +683,7 @@ class GameViewModel(
         gameJob?.cancel()
         SoundManager.playCollect()
         evaluateDailyMission()
+        bankRunPearls()
         saveHighScore()
     }
 
@@ -730,6 +810,31 @@ class GameViewModel(
         }
     }
 
+    /**
+     * Converts the run into pearl currency: collected pearls + medal, mission and
+     * level bonuses. Revives make this run twice through here, so only the delta
+     * since the previous banking is credited.
+     */
+    private fun bankRunPearls() {
+        val medalBonus = when {
+            _score.value >= 50 -> 50
+            _score.value >= 25 -> 25
+            _score.value >= 10 -> 10
+            else -> 0
+        }
+        val missionBonus = if (_missionJustCompleted.value) MISSION_PEARL_BONUS else 0
+        val levelBonus = if (_levelCompleted.value) LEVEL_PEARL_BONUS else 0
+        val earned = runPearls + medalBonus + missionBonus + levelBonus
+
+        val delta = earned - pearlsBankedThisRun
+        if (delta > 0) {
+            _pearlWallet.value += delta
+            settings.pearlBalance = _pearlWallet.value
+            pearlsBankedThisRun = earned
+        }
+        _runPearlsEarned.value = earned
+    }
+
     /** Checks the run's stats against today's mission and persists completion. */
     private fun evaluateDailyMission() {
         if (_missionCompletedToday.value) return
@@ -757,6 +862,7 @@ class GameViewModel(
 
         // The score is recorded automatically — no manual save button needed.
         evaluateDailyMission()
+        bankRunPearls()
         saveHighScore()
 
         // Screen shake of particles on impact

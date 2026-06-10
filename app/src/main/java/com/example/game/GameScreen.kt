@@ -57,20 +57,27 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 // Cosmetics unlock as the best score climbs (requiredScore), giving a progression goal.
-enum class OctopusSkin(val skinName: String, val primaryColor: Color, val accentColor: Color, val requiredScore: Int) {
+// Entries with price > 0 are shop exclusives, bought with the pearl currency instead.
+enum class OctopusSkin(val skinName: String, val primaryColor: Color, val accentColor: Color, val requiredScore: Int, val price: Int = 0) {
     CLASSIC("Rosé Classique", Color(0xFFFF7675), Color(0xFFD63031), 0),
     MINT("Menthe Néon", Color(0xFF55E6C1), Color(0xFF1B9CFC), 15),
     GOLD("Éclat d'Or", Color(0xFFFFD700), Color(0xFFFF9F43), 40),
-    COSMIC("Abysses Violets", Color(0xFFA29BFE), Color(0xFF6C5CE7), 80)
+    COSMIC("Abysses Violets", Color(0xFFA29BFE), Color(0xFF6C5CE7), 80),
+    ELECTRIC("Bleu Électrique", Color(0xFF00A8FF), Color(0xFF0652DD), 0, price = 150),
+    LAVA("Lave Ardente", Color(0xFFFF6348), Color(0xFFB71540), 0, price = 300),
+    EMERALD("Émeraude Royale", Color(0xFF00B894), Color(0xFF006266), 0, price = 500),
+    SAKURA("Fleur de Sakura", Color(0xFFFDA7DF), Color(0xFFD980FA), 0, price = 800)
 }
 
 // The pirate patch is special: it's the daily-mission reward, not a score unlock.
-enum class OctopusAccessory(val displayName: String, val requiredScore: Int, val missionReward: Boolean = false) {
+enum class OctopusAccessory(val displayName: String, val requiredScore: Int, val missionReward: Boolean = false, val price: Int = 0) {
     NONE("Aucun accessoire ✕", 0),
     CROWN("Couronne Royale 👑", 50),
     SAILOR("Chapeau de Marin ⚓", 10),
     SUNGLASSES("Lunettes de Soleil 😎", 25),
-    PIRATE_PATCH("Cache-œil de Pirate 🏴‍☠️", 0, missionReward = true)
+    PIRATE_PATCH("Cache-œil de Pirate 🏴‍☠️", 0, missionReward = true),
+    TOP_HAT("Chapeau de Magicien 🎩", 0, price = 250),
+    NINJA_BAND("Bandeau de Ninja 🥷", 0, price = 400)
 }
 
 @Composable
@@ -107,6 +114,10 @@ fun GameScreen(
     val missionCompletedToday by viewModel.missionCompletedToday.collectAsStateWithLifecycle()
     val missionJustCompleted by viewModel.missionJustCompleted.collectAsStateWithLifecycle()
     val missionsCompletedCount by viewModel.missionsCompletedCount.collectAsStateWithLifecycle()
+    val pearlWallet by viewModel.pearlWallet.collectAsStateWithLifecycle()
+    val purchasedCosmetics by viewModel.purchasedCosmetics.collectAsStateWithLifecycle()
+    val runPearlsEarned by viewModel.runPearlsEarned.collectAsStateWithLifecycle()
+    val reviveAvailable by viewModel.reviveAvailable.collectAsStateWithLifecycle()
 
     val interactionSource = remember { MutableInteractionSource() }
 
@@ -695,6 +706,51 @@ fun GameScreen(
                     drawPath(bandPath, Color(0xFF1B9CFC))
                     // Red pompom at peak
                     drawCircle(Color(0xFFD63031), radius = 3.5f, center = Offset(octoX, octoY - 42f))
+                } else if (selectedAccessory == OctopusAccessory.TOP_HAT) {
+                    // Magician's top hat: wide brim, tall crown and a purple ribbon
+                    drawRoundRect(
+                        color = Color(0xFF1E272E),
+                        topLeft = Offset(octoX - 24f, octoY - 32f),
+                        size = Size(48f, 6f),
+                        cornerRadius = CornerRadius(3f, 3f)
+                    )
+                    drawRoundRect(
+                        color = Color(0xFF1E272E),
+                        topLeft = Offset(octoX - 15f, octoY - 60f),
+                        size = Size(30f, 30f),
+                        cornerRadius = CornerRadius(3f, 3f)
+                    )
+                    drawRect(
+                        color = Color(0xFF8E44AD),
+                        topLeft = Offset(octoX - 15f, octoY - 38f),
+                        size = Size(30f, 7f)
+                    )
+                } else if (selectedAccessory == OctopusAccessory.NINJA_BAND) {
+                    // Ninja headband with a metal plate and ribbons trailing in the current
+                    drawRect(
+                        color = Color(0xFF192A56),
+                        topLeft = Offset(octoX - 29f, octoY - 23f),
+                        size = Size(58f, 9f)
+                    )
+                    drawRoundRect(
+                        color = Color(0xFF95A5A6),
+                        topLeft = Offset(octoX - 8f, octoY - 24f),
+                        size = Size(16f, 11f),
+                        cornerRadius = CornerRadius(2f, 2f)
+                    )
+                    val ribbonSway = sin(waveTime * 6f).toFloat() * 6f
+                    drawLine(
+                        color = Color(0xFF192A56),
+                        start = Offset(octoX + 27f, octoY - 18f),
+                        end = Offset(octoX + 47f, octoY - 10f + ribbonSway),
+                        strokeWidth = 6f, cap = StrokeCap.Round
+                    )
+                    drawLine(
+                        color = Color(0xFF192A56),
+                        start = Offset(octoX + 27f, octoY - 18f),
+                        end = Offset(octoX + 45f, octoY - 1f - ribbonSway),
+                        strokeWidth = 6f, cap = StrokeCap.Round
+                    )
                 }
 
                 // Render cartoon expressively reacting glowing Eyes
@@ -1192,6 +1248,26 @@ fun GameScreen(
                                             .padding(bottom = 16.dp)
                                     )
 
+                                    // Pearl wallet chip — tap habits: players see their currency grow
+                                    Row(
+                                        modifier = Modifier
+                                            .padding(bottom = 12.dp)
+                                            .clip(RoundedCornerShape(20.dp))
+                                            .background(Color(0xFFFFD700).copy(alpha = 0.1f))
+                                            .border(1.dp, Color(0xFFFFD700).copy(alpha = 0.35f), RoundedCornerShape(20.dp))
+                                            .padding(horizontal = 14.dp, vertical = 5.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(text = "🦪", fontSize = 14.sp)
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "$pearlWallet",
+                                            color = Color(0xFFFFD700),
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Black
+                                        )
+                                    }
+
                                     // MODE SELECTOR: endless run vs fixed-objective levels
                                     Row(
                                         modifier = Modifier
@@ -1318,9 +1394,11 @@ fun GameScreen(
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.Medium
                                             )
-                                            if (!missionCompletedToday && missionsCompletedCount == 0) {
+                                            if (!missionCompletedToday) {
                                                 Text(
-                                                    text = "Récompense : Cache-œil de Pirate 🏴‍☠️",
+                                                    text = if (missionsCompletedCount == 0)
+                                                        "Récompense : 100 🦪 + Cache-œil de Pirate 🏴‍☠️"
+                                                    else "Récompense : 100 🦪",
                                                     color = Color.White.copy(alpha = 0.5f),
                                                     fontSize = 9.sp
                                                 )
@@ -1480,8 +1558,28 @@ fun GameScreen(
                                         fontSize = 15.sp,
                                         fontWeight = FontWeight.Black,
                                         letterSpacing = 1.sp,
-                                        modifier = Modifier.padding(bottom = 16.dp)
+                                        modifier = Modifier.padding(bottom = 8.dp)
                                     )
+
+                                    // Pearl wallet — the shop currency earned by playing
+                                    Row(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(20.dp))
+                                            .background(Color(0xFFFFD700).copy(alpha = 0.12f))
+                                            .border(1.dp, Color(0xFFFFD700).copy(alpha = 0.4f), RoundedCornerShape(20.dp))
+                                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(text = "🦪", fontSize = 16.sp)
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "$pearlWallet perles",
+                                            color = Color(0xFFFFD700),
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Black
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(14.dp))
                                     
                                     // SECTION 1: Skins Colors
                                     Text(
@@ -1497,7 +1595,9 @@ fun GameScreen(
 
                                     OctopusSkin.values().forEach { skin ->
                                         val isSelected = selectedSkin == skin
-                                        val unlocked = (highestScore ?: 0) >= skin.requiredScore
+                                        val unlocked = if (skin.price > 0) skin.name in purchasedCosmetics
+                                                       else (highestScore ?: 0) >= skin.requiredScore
+                                        val affordable = pearlWallet >= skin.price
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
@@ -1548,6 +1648,25 @@ fun GameScreen(
                                                     fontWeight = FontWeight.Black,
                                                     letterSpacing = 1.sp
                                                 )
+                                            } else if (!unlocked && skin.price > 0) {
+                                                // Shop item: buy with pearls
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .background(
+                                                            if (affordable) Color(0xFFFFD700).copy(alpha = 0.2f)
+                                                            else Color.White.copy(alpha = 0.05f)
+                                                        )
+                                                        .clickable(enabled = affordable) { viewModel.buySkin(skin) }
+                                                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "${skin.price} 🦪",
+                                                        color = if (affordable) Color(0xFFFFD700) else Color.White.copy(alpha = 0.35f),
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Black
+                                                    )
+                                                }
                                             } else if (!unlocked) {
                                                 Text(
                                                     text = "🔒 ${skin.requiredScore} pts",
@@ -1575,8 +1694,12 @@ fun GameScreen(
 
                                     OctopusAccessory.values().forEach { accessory ->
                                         val isSelected = selectedAccessory == accessory
-                                        val unlocked = if (accessory.missionReward) missionsCompletedCount > 0
-                                                       else (highestScore ?: 0) >= accessory.requiredScore
+                                        val unlocked = when {
+                                            accessory.missionReward -> missionsCompletedCount > 0
+                                            accessory.price > 0 -> accessory.name in purchasedCosmetics
+                                            else -> (highestScore ?: 0) >= accessory.requiredScore
+                                        }
+                                        val affordable = pearlWallet >= accessory.price
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
@@ -1612,6 +1735,25 @@ fun GameScreen(
                                                     fontWeight = FontWeight.Black,
                                                     letterSpacing = 1.sp
                                                 )
+                                            } else if (!unlocked && accessory.price > 0) {
+                                                // Shop item: buy with pearls
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .background(
+                                                            if (affordable) Color(0xFFFFD700).copy(alpha = 0.2f)
+                                                            else Color.White.copy(alpha = 0.05f)
+                                                        )
+                                                        .clickable(enabled = affordable) { viewModel.buyAccessory(accessory) }
+                                                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "${accessory.price} 🦪",
+                                                        color = if (affordable) Color(0xFFFFD700) else Color.White.copy(alpha = 0.35f),
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Black
+                                                    )
+                                                }
                                             } else if (!unlocked) {
                                                 Text(
                                                     text = if (accessory.missionReward) "🔒 Mission du jour"
@@ -2040,6 +2182,21 @@ fun GameScreen(
 
                     Spacer(modifier = Modifier.height(18.dp))
 
+                    // Pearls earned this run (collected + medal/mission/level bonuses)
+                    if (runPearlsEarned > 0) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(text = "🦪", fontSize = 16.sp)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "+$runPearlsEarned perles  ·  total : $pearlWallet",
+                                color = Color(0xFFFFD700),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                    }
+
                     // Daily mission completed during this very run
                     if (missionJustCompleted) {
                         Row(
@@ -2073,7 +2230,29 @@ fun GameScreen(
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Second chance: spend pearls to resume the crashed run (once per run)
+                    if (!levelCompleted && reviveAvailable && pearlWallet >= GameViewModel.REVIVE_COST) {
+                        Button(
+                            onClick = { viewModel.revive() },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFD700)),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(50.dp)
+                                .testTag("revive_button")
+                        ) {
+                            Text(
+                                text = "💫 REPRENDRE — ${GameViewModel.REVIVE_COST} 🦪",
+                                color = Color(0xFF0F2027),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 1.sp
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
 
                     // Replay / Back Actions Row
                     Row(

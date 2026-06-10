@@ -37,6 +37,16 @@ class SettingsRepository(context: Context) {
         get() = prefs.getInt(KEY_MAX_LEVEL, 1)
         set(value) { prefs.edit().putInt(KEY_MAX_LEVEL, value).apply() }
 
+    /** Pearl currency banked across runs, spent in the shop and on revives. */
+    var pearlBalance: Int
+        get() = prefs.getInt(KEY_PEARLS, 0)
+        set(value) { prefs.edit().putInt(KEY_PEARLS, value).apply() }
+
+    /** Enum names of every cosmetic bought with pearls. */
+    var purchasedCosmetics: Set<String>
+        get() = prefs.getStringSet(KEY_PURCHASED, emptySet()) ?: emptySet()
+        set(value) { prefs.edit().putStringSet(KEY_PURCHASED, value).apply() }
+
     private companion object {
         const val KEY_SKIN = "skin"
         const val KEY_ACCESSORY = "accessory"
@@ -44,5 +54,7 @@ class SettingsRepository(context: Context) {
         const val KEY_MISSION_DAY = "mission_last_day"
         const val KEY_MISSION_COUNT = "missions_completed"
         const val KEY_MAX_LEVEL = "max_unlocked_level"
+        const val KEY_PEARLS = "pearl_balance"
+        const val KEY_PURCHASED = "purchased_cosmetics"
     }
 }
